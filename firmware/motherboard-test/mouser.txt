@@ -1,0 +1,138 @@
+MOUSER LIST — KOI 8x8 PAPER VALIDATION / CAL CAMPAIGN
+=====================================================
+Not the board BOM. This is the bench + jig hardware needed to take the
+Section 7 data (calibration sweeps, two-load subset, thermal, crosstalk)
+per the 2026-07-06 test plan in paper/todo.txt. High-level specs; pick
+exact MPNs on Mouser.
+
+1) CALIBRATION LOADS
+--------------------
+70x  1 kOhm thin-film resistor, 0.1%, <=25 ppm/K, BIG package (2512 or
+     2 W axial) to tame self-heating (36 mW at 6 mA -> keep rise <1-2 K).
+     64 populated + spares. Value comes from 4-wire DMM measurement, so
+     0.1% grade is enough — do NOT buy 64 foil parts.
+10x  ~300 Ohm, same spec (0.1%, <=25 ppm/K, big package) — two-load
+     subset, one board re-run.
+10x  ~2 kOhm, same spec — other half of the two-load subset.
+1-2x VPG foil resistor, ~1 kOhm, 0.01%, <=2 ppm/K (VSMP/VPR/Y-series
+     class) — bench transfer standard only (DMM range check, spot checks).
+
+2) CAL JIG PCB (2-pole relay tree routing the DMM across one load at a time)
+----------------------------------------------------------------------------
+Relays — 2 poles per channel is REQUIRED (Kelvin low-side sense at the
+     load; a shared-ground tap adds ~0.5-1 mV of position-dependent IR
+     drop = 0.5-1 uA fake offset at 1 kOhm — same order as the IOS being
+     resolved). Two ways to buy it, pick by live price:
+     (a) REVISED 2026-07-10 (23-relay bank + moved sense jumper):
+         ~25x Omron G6A relay, one per relay-bank channel (23 used).
+         The 64 loads live on the jig PERMANENTLY and all three 50-pin
+         drive FFCs (23 ch each) stay plugged in for the whole campaign
+         — what moves between three jig headers is a SENSE-ONLY FFC
+         jumper into the relay bank (2 swaps covers 64 ch). NEVER swap
+         the drive FFCs: unplugging one unloads ~41 channels -> outputs
+         rail to ~18-20 V next to the channels being measured (poison
+         for the board-leakage hunt).
+         Pole-count fork (G6A-474P is DISCONTINUED — alternatives):
+           - 4 poles/channel for in-situ 4-wire ohms, TWO moved 50-pin
+             jumpers (23 ch x 4 wires = 92 pins). Preferred build:
+             GANG 2x DPDT PER CHANNEL, both coils on one driver bit —
+             46x cheap DPDT (Hongfa HFD2 / TE Axicom IM / Panasonic
+             TQ2, ~$70-90 total); one relay = sense pair -> 2100 SENSE,
+             its twin = force pair -> 2100 INPUT. Commodity parts, no
+             discontinuation risk. (True-4PDT alternative if stocked:
+             Fujitsu FTR-B4 series.)
+           - 23x DPDT (G6A-274P class) + ONE jumper (sense pairs only):
+             simpler/cheaper, but loads must be 4W bench-premeasured
+             before soldering + a few hand-probe Kelvin test points
+             for the warm re-check.
+         OHMS-SCAN PROCEDURE (why driven-channel ohms is impossible:
+         any external current adds I_ext x R to the DMM's V reading —
+         3 mA drive = 300% error, even enabled-at-0 IOS = 0.4-2.4%):
+           1. Command all 0 + disable front-ends (XTR 0x00) — disabled
+              leakage 0.35 nA = 0.35 ppm of the 1 mA test current.
+           2. Use the 2100's OFFSET-COMPENSATED OHMS mode — measures V
+              with test current on AND off, subtracts -> any constant
+              residual current (leakage, thermal EMFs) cancels exactly.
+           3. Harness-on scans read R // 120k (-0.83% at 1k): exact
+              correction, but divider tolerance leaves ~83 ppm — do
+              harness-off when possible, correct + budget when warm.
+           4. Warm re-measure: soak at setpoint -> disable -> trigger
+              ohms within ~1 s (2512-package thermal tau ~10+ s);
+              script the timing.
+         Coil voltage: DC3 (3 V) coil needs low-drop drivers (TPIC6B595
+         MOSFET outputs off 3.3 V, ~0.2 V drop, OK) — a ULN2803
+         darlington drops ~0.9 V and leaves 2.4 V on a 3 V coil =
+         below must-operate. If using ULN/5 V rail, buy the DC5 coil.
+         Rules either way: never 4W-ohm a driven channel; ohms scans
+         with front-ends off or harness-off (else reading = R // 120k
+         divider, -0.83% at 1k). Crosstalk figure: run on a board fully
+         inside one 23-ch group (board 0 or 1 — board 2 straddles the
+         g22/g23 boundary).
+     (b) ~70x DPDT (2 Form C) sealed telecom relay, 5 V coil.
+         First choice: Omron G6K-2F / Panasonic TQ2-5V class (~$3.5-4.5,
+         pA-class open-contact leakage, best-documented).
+         Budget alternatives: Hongfa HFD2 / TE Axicom IM / Fujitsu
+         FTR-B3 class (~$1.3-2.5) — the jig only needs insulation
+         resistance (>=1 GOhm), not contact life, so these are
+         metrologically fine if the ~$150 saving matters.
+     (c) Solid-state alternative: ~18-20x high-voltage low-leakage 8:1
+         mux (TMUX6108 / MUX36S08, +-36 V class) — two-stage 64:1 tree
+         per pole, 9 chips/pole, ~$70-90 total, address lines instead of
+         64 coils+drivers. High Ron is FINE (voltage-sense path, no
+         current — error = Ron/Z_dmm, ~0 in hi-Z mode); what matters is
+         V rating (node rails ~18-20 V if a load opens — TMUX1108 at
+         5.5 V is OUT, ADG1408 at +-16.5 V marginal) and MAX off-leakage
+         over temp (pA typ / low-nA max => 100-1000x under the uA being
+         hunted). If chosen, ADD 2-3 relay-switched "golden" channels
+         (DPDT from option b) to cross-check the mux tree against a
+         junction-free path — closes the leakage argument with data.
+     Note: run the DMM in hi-Z (10 GOhm) input mode; its fixed 10 MOhm
+     mode steals ~1 uA at 12 V from the sense node regardless of switch
+     choice.
+4-9x TPIC6B595 (or ULN2803 + 74HC595) — shift-register relay drivers,
+     built-in clamp diodes. 4-5 if 4PDT (32 coils), 8-9 if DPDT (64);
+     not needed for option (c) beyond the golden-channel relays.
+1x   Raspberry Pi Pico — the jig's own controller (reuse the 595 pattern).
+1x   5 V relay-coil supply capacity: DC barrel jack + a few hundred mA
+     headroom (or a small 5 V module); bulk caps for coil switching.
+~20x 100 nF decoupling + a few 10 uF for the drivers.
+4x   Binding posts / banana jacks (Pomona class) — DMM + Keithley hookups;
+     keep the DMM pair a twisted/short path.
+Nx   Mating connectors/headers to break out all 64 daughterboard load
+     outputs to the jig — match the daughterboard output connector on the
+     schematic (count off schematic before ordering).
+Nx   Per-channel SPDT (form C) path for the Keithley-in-series spot checks
+     is covered by the DPDT relays above — just wire LOW side, never
+     hot-switch.
+
+3) THERMAL VALIDATION (all 64 ch at 6 mA into low-R loads, soak)
+----------------------------------------------------------------
+70x  Low-value power resistor for worst-case load, ~10-50 Ohm, >=0.5 W
+     (dissipation is in the XTR200, ~120 mW/part; loads barely warm).
+     Cheap 1% parts are fine — this test is thermal, not metrology.
+1-2x Thermocouple (K-type, fine gauge) or thermistor + adhesive, if the
+     IR camera isn't available/enough for package temps.
+
+4) MISC BENCH
+-------------
+1x   Spare micro-USB cable (Pico) + USB hub if jig Pico + Koi Pico + DMM
+     share one PC.
+Nx   Test leads / mini-grabber-to-banana (Pomona) for the Keithley series
+     insertion on a few channels.
+1x   Ambient temp/RH logger (log ambient with every dataset per test plan)
+     — or a cheap USB one from elsewhere.
+
+NOT MOUSER (reminders, already planned)
+---------------------------------------
+- Keithley 2100 (6.5-digit DMM, primary instrument: DCV across load +
+  in-situ 4W ohms) + its cal status. USB-TMC — scripts via pyvisa, no
+  GPIB needed for it. CAVEAT: hi-Z (>10 GOhm) input only on <=10 V
+  ranges, 100 V range is fixed 10 MOhm -> cap the 2 kOhm subset sweep
+  at ~4.8 mA (stays on 10 V range) or correct the ~1.2 uA it steals.
+- Keithley 2400 + GPIB-USB adapter (independent cross-check channels).
+- Jig PCB fab (release jig design files with the paper — HardwareX values
+  the open cal fixture).
+- IR camera for the thermal section, if borrowable.
+- IPA/swabs for the HASL boards before the campaign.
+
+https://www.falstad.com/s.php?s=GoCAnz

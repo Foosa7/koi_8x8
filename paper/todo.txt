@@ -1,0 +1,343 @@
+Koi 8x8 — paper TODO / working notes
+=====================================
+(Scratch file. A clean repo with finalized design files + BOM will be created
+separately for the paper submission. This just parks data so it isn't lost.)
+
+
+BILL OF MATERIALS — provisional pricing (per-unit)
+--------------------------------------------------
+Counts note: 66 XTR200 / 66 resistors imply spares (64 channels = 8 boards x 8).
+REF5030 count is 8 — one per daughterboard, each board's DAC+ADC share it;
+there is NO 9th ref on the controller (earlier "8 + 1 main = 9" was wrong).
+Confirm
+whether the paper BOM should quote the *populated* count (64) or the
+*ordered* count (incl. spares) — HardwareX wants build-cost, so ordered qty
+with a note is fine.
+
+--- Daughterboard analog (x8 boards) ---
+  66  XTR200          @ $1.456   =  $96.10
+   8  DAC80508        @ $15.50   = $124.00   [was written $144.00 — 8x15.5=124.00]
+   8  AD7193          @ $18.13   = $145.04   [was written $144.00 — 8x18.13=145.04]
+  66  Resistors       @ $1.00    =  $66.00
+   8  REF5030         @ $6.00    =  $48.00   [was 9 — wrong, no ref on controller]
+  25  Capacitors      @ $0.50    =  $12.50
+
+--- Controller / MOBO ---
+   1  RP2040          @ $7.00    =   $7.00
+   2  SN74LV138       @ $0.49    =   $0.98
+   1  SN74LV595       @ $1.00    =   $1.00
+   1  DSM2-12-S3-S    @ $10.37   =  $10.37
+   3  FFC             @ $3.00    =   $9.00   [AMBIGUOUS: $3 each (=$9) or $3 total? confirm]
+   1  Jack            @ $1.00    =   $1.00
+
+--- PCB ---
+   8  Analog PCB      @ $30.00   = $240.00
+   1  Main PCB        @ $3.00    =   $3.00
+
+--- Assembly ---
+   TBA
+
+SYSTEM TOTAL (corrected multiplications, 8 refs, FFC as $3 ea): ~$763.99
+  Per-channel (64 ch): ~$11.94/channel
+  (If FFC is $3 total, subtract $6 -> ~$757.99, ~$11.84/ch)
+
+Compare against Qontrol / multichannel Keithley 2400-class SMU per-channel
+cost for the "fraction of the cost" claim in the abstract/spec table.
+
+
+BOM PRESENTATION — decision
+---------------------------
+Q: itemize each passive, or lump them for the paper?
+A: Do BOTH, split by venue (this is standard HardwareX practice, and the
+   draft's BOM-section comment already anticipates it):
+   - PAPER main-text "Bill of materials summary" table: LUMP. One line each
+     for "Resistors" and "Capacitors" (qty + total). Reviewers want the major
+     cost drivers legible, not 25 identical 0.1uF rows. Group by function.
+   - SUPPLEMENTARY CSV (released with design files): ITEMIZE every part with
+     designator, value, qty, unit cost, supplier, MPN. This is the
+     reproducibility artifact and HardwareX expects a complete itemized BOM.
+   So: grouped in the paper, fully itemized in the supp. CSV.
+
+
+OFFSET-CURRENT ANOMALY (BLOCKER for all IOS / calibration numbers)
+------------------------------------------------------------------
+- Uniform -24 uA static offset on ALL channels of boards 0-2 (2026-07-03
+  sweep). 2.4x datasheet max IOS and uniform across parts => systematic,
+  not per-part offset. MUST be solved on the devkit before Sec. 7 numbers.
+- Progress: ~10 uA attributed to leakage current. Remaining ~14 uA
+  unattributed — find where it goes (current-side vs measurement-side;
+  run the test.txt Section 2 isolation ladder: shorted-input ADC offset,
+  front-end disabled leakage, enabled zero-command, DMM at the ADC pin).
+- Closed-loop TiN demo and final cal campaign are gated on this.
+
+CAL FIXTURING — TEST-SETUP ACTION PLAN (updated 2026-07-06)
+------------------------------------------------------------
+Primary method: DMM-across-known-load (V/R), NOT Keithley-in-series on all
+64 ch. One DMM reading per point gives heater V directly and I = V/R_meas
+(+ V/120k divider term). Metrologically stronger than the 2400's ammeter
+(~30 ppm DMM + ~100 ppm R  vs  ~0.03 % + offset for the 2400) and never
+breaks the current path, so all 64 channels stay loaded and driven while
+scanning (representative operating conditions; no compliance railing).
+
+Loads (cost decision — do NOT buy 64 foil resistors):
+- 64x cheap 0.1 %, 25 ppm/K thin-film 1 kOhm (1206/2512 or 2 W package to
+  tame self-heating), EACH measured 4-wire with the 6.5-digit DMM. Value
+  comes from measurement, not the part grade.
+- 1-2x VPG foil resistors TOTAL, as bench transfer standards only (check
+  DMM ranges, spot-check channels).
+- Self-heating budget at 6 mA into 1 k (36 mW): ~3-4 K in a 1206 ->
+  ~90 ppm @ 25 ppm/K -> ~0.5 uA at FS, scales as I^2. Bound it, or
+  re-measure R warm; log ambient with every dataset.
+
+Jig PCB:
+- 2-pole (both ends of load) switching tree routes the DMM across one
+  channel's load at a time. Relays preferred (pA open-contact leakage —
+  no leakage argument during the -24 uA hunt); if solid-state, must be
+  high-voltage mux class (TMUX6108 / MUX36S08 / ADG1408). TMUX1108 is OUT:
+  5.5 V max, heater node hits ~12 V and rails ~18-20 V when unloaded.
+- If Keithley-in-series is ever inserted: per-channel SPDT (form C) so
+  deselected channels keep their ground return; switch on the LOW side;
+  never hot-switch (command 0 mA first). Plain 8:1 mux in the current
+  path is WRONG (open-circuits the other 7 loads -> compliance rail).
+- Drive: shift register + relay driver (TPIC6B595 / ULN2803) from the
+  jig's own RP2040 (reuse the 595 pattern).
+- Release the jig (schematic, PCB, BOM, control script) as open design
+  files — "open calibration fixture" is a HardwareX-valued contribution.
+
+Jig PCB — 4-wire / Kelvin layout rules (added 2026-07-10):
+- KELVIN GEOMETRY, NOT MORE SWITCHING: the 2-pole tree is already
+  effectively 4-wire during the sweep (DMM hi-Z -> no current in the
+  sense path, so relay/trace R drops nothing). The requirement is that
+  the two sense traces branch DIRECTLY AT THE LOAD PADS — any shared
+  segment upstream carries the 6 mA drive current and its IR drop lands
+  inside the measurement. Route each sense pair together to the tree.
+- Run the DMM in hi-Z (10 GOhm) input mode; the fixed 10 MOhm mode
+  steals ~1 uA at 12 V from the sense node (bigger than any switch
+  error). Check which ranges keep hi-Z on the actual DMM (>10 V ranges
+  often force 10 MOhm) — matters for the 2 kOhm subset at 6 mA (12 V).
+- R_meas — DECIDED 2026-07-10: IN-SITU 4-WIRE OHMS via one 4PDT per
+  load (supersedes the earlier bench-premeasure plan). Sense pair at
+  the pads -> Keithley 2100 SENSE terminals; force pair at the pads ->
+  2100 INPUT terminals. DCV sweeps use the INPUT pair (still Kelvin at
+  the pads); 4W ohms uses both. Benefits: no bench premeasure /
+  bookkeeping of 64 loose parts, R measured through the same taps as
+  the sweep, and "re-measure R warm" / drift checks = just re-run the
+  ohms scan. Rules: NEVER 4W-ohm a driven channel (2100 sources test
+  current into the node); do ohms scans with the harness disconnected
+  (else reading = R // 120k divider, -0.83% at 1k — correctable but
+  avoid). 2-wire ohms through the tree stays forbidden (relay+cable R
+  = 200-1000 ppm on 1k).
+- Ohms-scan procedure (2026-07-10): any external current through the
+  load adds I_ext x R to the DMM reading (3 mA drive = 300% error;
+  even enabled-at-0 IOS = 0.4-2.4%). So: (1) command 0 + XTR 0x00
+  (disabled leakage 0.35 nA = 0.35 ppm of the 1 mA test current);
+  (2) use the 2100's OFFSET-COMPENSATED OHMS — V measured with test
+  current on and off, so any CONSTANT residual current / thermal EMF
+  cancels exactly; (3) warm re-measure = soak at setpoint, disable,
+  trigger ohms within ~1 s (2512 thermal tau ~10+ s), script the
+  timing. Harness-on reading = R // 120k: exact correction but divider
+  tolerance leaves ~83 ppm — prefer harness-off, budget the term when
+  warm-scanning harness-on.
+- Relay sourcing: G6A-474P (4PDT) is discontinued. Build 4 poles/ch by
+  GANGING 2x commodity DPDT per channel (one driver bit drives both
+  coils; Hongfa HFD2 / Axicom IM / TQ2 class, ~$70-90 for 46) — or
+  Fujitsu FTR-B4 if a true 4PDT is stocked.
+- Parameter separation (2026-07-10) — how the "two unknowns" (divider,
+  IOS) decouple; structure the analysis script this way:
+  1. CURRENT-SIDE FIT (DMM only): I_true = V_dmm/R_meas + V_dmm/120k;
+     fit vs commanded -> calSlope (shared) + calOffset (IOS). The 6:1
+     ratio NEVER enters (DMM measures the load directly); the divider
+     appears only via the stolen-current term. Divider parts are 0.1%
+     -> residual ~17 ppm of I even at the 2k/2V worst case (16.7 uA
+     stolen, corrected to ~+-17 nA). Negligible, no cal needed.
+     NB stolen current scales with V -> on a fixed-R sweep it is a
+     GAIN error (-0.83% at 1k if uncorrected), never a static offset:
+     independent proof the -24 uA anomaly is NOT a divider-correction
+     bug. ADC buffered input (~GOhm) sits on the divider TAP: ~20 ppm
+     ratio shift + nA bias current, both absorbed by the voltage-side
+     fit.
+  2. VOLTAGE-SIDE FIT (same sweep): regress onboard ADC raw V against
+     V_dmm -> per-channel effective ratio (replaces the default 6.0;
+     lumps divider ratio + ADC gain + ref — fine, ratiometric) +
+     intercept = ADC-path offset (the GUI "Offset+ mV").
+  3. TWO-LOAD RE-RUN attributes any anomalous offset (-24 uA) to
+     side 1 vs side 2.
+  Bonus: harness-off vs harness-on ohms scans give each channel's
+  actual 120k shunt (sensitivity diluted ~120x, but same-meter
+  differential precision ~10-20 ppm -> 120k to a few 0.1%), if the
+  70 ppm ever needs tightening.
+- Considered & REJECTED (2026-07-10): raising the divider to 100M/20M
+  to shrink the stolen current. The V/120k term is KNOWN (analytic,
+  ~70 ppm residual); 100M/20M replaces it with UNCORRECTABLE errors:
+  AD7193 buffered-input bias (nA-class, temp-doubling) x 16.7M source
+  impedance = 17-50 mV at the pin; PCB surface leakage (GOhm-class,
+  HASL/flux) vs a 100M leg = %-level ratio shifts; >=10M parts are
+  thick film only (1-5%, bad TCR, voltage coefficient -> nonlinear
+  ratio); RC settling + Johnson noise hurt the continuous scan.
+  Design rule for the paper: prefer a large KNOWN term over a small
+  UNKNOWN one. (If ever needed: 1M/200k thin film or a buffered tap —
+  no respin justified at current accuracy targets.)
+- Keithley 2100 notes: USB-TMC (pyvisa, no GPIB). Hi-Z (>10 GOhm)
+  input only on <=10 V ranges; 100 V range is fixed 10 MOhm -> cap the
+  2 kOhm subset at ~4.8 mA (stay on 10 V range) or correct the ~1.2 uA
+  the 10 MOhm steals at 12 V.
+- Jig topology DECIDED 2026-07-10: 23-channel relay bank (one 50-pin
+  FFC = 23 ch), 2 cable swaps cover 64 ch. CONSTRAINT: the 64 loads
+  are PERMANENTLY on the jig and all three drive FFCs stay plugged in
+  for the whole campaign — the moved cable is a jig-local SENSE-ONLY
+  jumper between three headers and the relay bank. Never unplug a
+  drive FFC mid-campaign: ~41 unloaded channels rail to 18-20 V next
+  to the measurement (kills the all-64-loaded-and-driven condition and
+  contaminates the board-leakage hunt). Part numbering trap: Omron
+  G6A-274P = DPDT, G6A-474P = 4PDT — in-situ 4W ohms needs the 474P
+  (+ second 50-pin sense jumper, 23 ch x 4 = 92 pins); 274P = sense
+  only -> bench-premeasure the loads. DC3 coils need MOSFET-output
+  drivers (TPIC6B595 from 3.3 V); ULN2803's ~0.9 V drop starves a 3 V
+  coil. Crosstalk figure on board 0 or 1 (board 2 straddles the 23-ch
+  group boundary at g22/g23).
+- Loads: tolerance grade is free (value comes from the ohms scan) but
+  buy THIN FILM (thick film has voltage coefficient, tens of ppm/V ->
+  fake nonlinearity across the 0.3-6 V sweep) with TCR <=25-50 ppm/K
+  and a big package (self-heating ~1-2 K at 36 mW).
+- Drive path short and fat (connector -> load -> ground return). Its R
+  is outside the taps so it doesn't corrupt the DMM number, but it adds
+  drop between the load and the daughterboard's divider node -> shows up
+  in the onboard-ADC-vs-DMM readback comparison. Keep harness drop small.
+- Silkscreen designators + a measurement log keying each R_meas to its
+  channel index (the cal math uses measured value, not nominal).
+- No star-ground heroics needed: with true 2-pole sensing at the pads,
+  the ground return only carries current, not metrology.
+- Relay-count note (explored 2026-07-10): an 8+8 two-stage relay tree
+  does NOT work with 2-pole relays — the board-select stage needs 16
+  poles (8 ch x 2 wires), and the naive shared-channel-bus wiring would
+  hard-short same-index channels of different boards (live sources)
+  together. Buildable version = 40 packages, costs MORE than 64 cheap
+  DPDTs. If minimizing count: solid-state 8:1 HV mux tree (TMUX6108 /
+  MUX36S08, +-36 V; high Ron irrelevant in the hi-Z sense path, check
+  MAX off-leakage over temp) + 2-3 relay-switched golden channels as a
+  junction-free cross-check. See mouser.txt options (a)-(c).
+
+Campaign structure:
+- Main dataset (Qontrol-comparable): ALL 64 ch at measured 1 kOhm,
+  0.25-6 mA sweep both directions.
+- Two-load subset: ONE board re-run at ~300 Ohm and ~2 kOhm. Single-R
+  sweeps have V = I*R perfectly correlated -> can't separate I-scaling
+  errors (XTR gain, true IOS, DAC) from V-scaling errors (leakage,
+  divider correction, ADC/divider gain). Same I at 2x V: if apparent
+  offset moves -> leakage/measurement-side; if not -> genuine XTR IOS.
+  This one figure attributes the -24 uA anomaly, validates the V/120k
+  correction, exercises more ADC span, and shows load-independence
+  (which Qontrol doesn't even publish — differentiator).
+- Keithley 2400 in series on a FEW channels (manual cabling): independent
+  cross-check of the V/R method (test.txt step 0.2 closes traceability).
+
+Paper: describe the setup in the MAIN TEXT (Calibration method subsection):
+instrument list + cal status, jig topology diagram, and a small uncertainty
+budget table (DMM V, R tolerance/TCR/self-heating, divider term -> total I
+uncertainty vs the +-4 uA IOS being resolved). Full jig detail goes in the
+supplementary / repo, not omitted.
+
+CLOSED-LOOP CLAIM
+-----------------
+- Closed-loop tuning is a headline claim of the paper — it needs real TiN
+  heater test data (R vs power, servo demo). Scheduled LAST: after the
+  offset anomaly is solved and the measurement chain is tightened.
+
+THERMAL / "NO HEATSINKING" CLAIM (added 2026-07-06)
+----------------------------------------------------
+- The paper now claims (Sec 2.1) that 8 XTR200s per board need no
+  heatsinking. Back it with data (new Sec 7 "Thermal validation"):
+  worst case ~(Vsupply - Vload) x I ~= 120 mW/part at 6 mA into a
+  near-short -> ~1 W per fully driven board across 8 packages.
+- Test: all 64 ch at max current into low-R loads, thermal soak to
+  steady state; IR camera / thermocouple on packages + board; report
+  temp rise AND the induced current/reference drift (ties into the
+  warm-up + overnight drift tests). Note derating for stacked/enclosed
+  operation if needed.
+- Framing: distributed dissipation is standard practice (Qontrol does
+  the same) — validate the claim, don't sell it as novelty.
+
+ASSEMBLY
+--------
+- Paper must state assembly method + cost (hand reflow w/ stencil vs PCBA
+  service; DAC80508/AD7193 are fine-pitch). Include in BOM system total.
+  \todo added in main.tex BOM section.
+
+NAMING — RESOLVED 2026-07-06
+----------------------------
+- Renamed MOBO -> Koi everywhere: firmware *IDN? now "KOI,8x8,fw1.1",
+  boot banner "# KOI 8x8", GUI renamed mobo_gui.py -> koi_gui.py
+  (class MoboLink -> KoiLink), tool imports + CLAUDE.md + paper updated.
+  GUI accepts both KOI and MOBO IDN prefixes until the Pico is reflashed.
+  REFLASH the Pico (pio run -t upload) to complete the rename.
+
+EXISTING-SOLUTIONS SURVEY (added 2026-07-06, extend before submission)
+----------------------------------------------------------------------
+- Added to refs.bib + Section 1: Qontrol Q8a/Q8iv (commercial), Sacchi et
+  al. 2025 Light Sci Appl 8-ch CMOS ASIC controller (research, not open),
+  uSMU (open single-channel SMU), plus background refs (Bogaerts 2020,
+  Clements 2016, Harris 2014, Milanizadeh 2019 — VERIFY-marked entries).
+- Still to do: systematic sweep of HardwareX / JOSS / OSF / GitHub for open
+  multichannel drivers; record Qontrol list prices for the cost comparison.
+
+OPEN PAPER TODOs (from \todo{} markers in main.tex)
+---------------------------------------------------
+- Author list, affiliations, corresponding author.
+authors are Rohan Yadgirkar(rohany@kth.se), Ali Elshaari(elshaari@kth.se)
+
+
+- Fill final per-channel cost into abstract + spec table + BOM total.
+- Confirm closest-commercial-analog products + prices (Qontrol Q8iv/BP,
+  Keithley 2400-class).
+- Confirm open-source licenses (HW: CERN-OHL-S v2; FW/SW: MIT).
+- Zenodo DOI + GitHub URL for source repo.
+- Figures: system block diagram; calibration plots; noise vs RATE/AVG.
+- Transcribe subsystem prose from CLAUDE.md (HC138, AD7193 continuous scan,
+  DAC80508 ref/gain, XTR595 active-low enable).
+- Validation section: Keithley 2400 sweep 0.25-6 mA, per-channel cal,
+  span error / nonlinearity, IOS scatter, sense-divider correction check,
+  full 64-ch scan time, crosstalk + board-to-board reproducibility.
+- Bib: replace TODO cite keys, add refs.bib entries.
+
+CHARACTERIZATION PLAN — mirror Qontrol Q8a current-mode suite
+------------------------------------------------------------
+Replicate the Q8a datasheet's per-parameter METHODOLOGY on Koi and report
+Koi's OWN measured data next to Q8a's published specs (attributed). Do NOT
+copy their numbers. Range differs (Koi 0-6 mA / ~0-18 V heater vs Q8a
+0-100 mA / 0-12 V), so also report resolution & precision as % of full scale,
+not just raw uA, or the comparison is apples-to-oranges.
+
+Bench: Keithley 2400 as external current reference (GPIB/SCPI), sweep each
+channel 0.25-6 mA (linear regime; sub-100 uA unreliable - source can't sink).
+
+Current-mode measurements to take (figure placeholders already in main.tex,
+see \label references):
+  [fig:i-transfer]        Current transfer function: nominal vs measured, all
+                          64 ch; + fine (single-code) panel.
+  [fig:i-deviation]       Current deviation from nominal, TWO curves:
+                            (a) vs external DMM/Keithley -> source accuracy
+                            (b) vs onboard AD7193 readback -> closed-loop
+                                measurement accuracy (after divider correction)
+  [fig:i-linearity]       Single-code current step-size histogram (DAC LSB over
+                          0-6 mA); current-mode DNL; current-mode INL.
+  [fig:i-precision]       Current std dev at a fixed setpoint (e.g. 3 mA),
+                          report as 1-sigma.
+  [fig:i-crosstalk-power] Current-mode crosstalk (drive ch1-7 aggressors, watch
+                          ch0 victim); power-into-load vs current w/ Pmax point.
+
+Comparison-table columns to fill (Koi measured | Q8a spec | units):
+  - current output range          | 0-6 mA        | 0-100 mA
+  - current resolution (LSB)       | ? (~16-bit/6mA => finer) | 1.6 uA
+  - current output precision (1s)  | ?             | 500 nA
+  - current measure precision      | ?             | 1.9 uA
+  - current-mode crosstalk         | ?             | 5 uA
+  Report Koi's uA figures AND as %FS so the smaller range is honest.
+
+Also (own device, not from Q8a): sense-divider correction validation, ADC
+noise vs RATE/AVG, full 64-ch scan throughput, board-to-board reproducibility.
+
+
+NAMING / FIRMWARE FOLLOW-UP — DONE 2026-07-06 (see "NAMING — RESOLVED" above)
+-----------------------------------------------------------------------------
+- Firmware, GUI, tools, CLAUDE.md and paper all renamed to Koi.
+- Remaining: reflash the Pico; optionally rename the repo dir (mobo-test).

@@ -1,0 +1,600 @@
+% =====================================================================
+%  HardwareX manuscript -- Koi 8x8
+%  Draft skeleton. Final submission should use the official HardwareX
+%  elsarticle template (els-cas-templates). This article-class version
+%  is for drafting + sharing a compilable PDF.
+%
+%  Build:  make        (or  pdflatex main.tex  twice)
+%  TODOs:  search for \todo{...} -- these mark data/text still to add.
+% =====================================================================
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+% --- editing helpers --------------------------------------------------
+% \todo{...} marks something to fill in; renders in red. Set \draftfalse
+% (or comment the \drafttrue line) to hide them for a clean read.
+\newif\ifdraft\draftfalse
+\newcommand{\todo}[1]{\ifdraft{\color{red}\textbf{[TODO: #1]}}\fi}
+\newcommand{\note}[1]{\ifdraft{\color{blue!60!black}\textit{(#1)}}\fi}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% --- placeholder plot box ---------------------------------------------
+% \plotph{width}{height}{Plot title} draws a titled, hatched placeholder so
+% the figure layout is reviewable before real data exists. Swap each call
+% for \includegraphics{figures/...} once the plot is generated.
+\newcommand{\plotph}[3]{%
+  \setlength{\fboxsep}{0pt}%
+  \fbox{\parbox[c][#2][c]{#1}{\centering
+    \color{black!55}\ttfamily\small #3\\[2pt]
+    \color{black!35}\scriptsize[placeholder --- awaiting data]}}}
+
+\title{\textbf{Koi 8$\times$8: A low-cost 64-channel current-source-and-sense controller for thermo-optic phase shifters in photonic integrated circuits}}
+\author{%
+  Rohan Yadgirkar\thanks{Corresponding author: \texttt{rohany@kth.se}}\quad Ali Elshaari\\[4pt]
+  \normalsize KTH Royal Institute of Technology, Stockholm, Sweden\\[2pt]
+  \small\texttt{rohany@kth.se}\quad\texttt{elshaari@kth.se}%
+}
+\date{Draft --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This article describes the development of \emph{Koi 8$\times$8}, a compact,
+low-cost, open-source 64-channel current-source-and-sense controller for
+driving arrays of thermo-optic (TiN) phase shifters on photonic integrated
+circuits. The system is built entirely from off-the-shelf parts: a Raspberry
+Pi Pico controls up to eight stackable daughterboards, each combining an
+8-channel DAC, a 24-bit $\Sigma\Delta$ ADC, and eight precision industrial
+current transmitters operated as current sources. Each channel sources a
+programmed current and reads back the load voltage, so the host computes
+heater resistance and dissipated power in situ for closed-loop tuning. On
+each board the DAC and ADC share one precision reference, so the reference
+error cancels in the derived resistance; a one-time calibration against a
+reference source-measure unit recovers absolute accuracy. Complete hardware,
+firmware, host software, and calibration tooling are released under open
+licenses.
+\end{abstract}
+
+% =====================================================================
+\section*{Specifications table}
+% HardwareX requires this table verbatim near the front.
+\renewcommand{\arraystretch}{1.3}
+\noindent\begin{tabularx}{\textwidth}{@{}L{3.6cm} X@{}}
+\toprule
+Hardware name & Koi 8$\times$8 --- 64-channel current-source-and-sense controller \\
+Subject area &
+\begin{minipage}[t]{\linewidth}
+\begin{itemize}[nosep,leftmargin=1.2em]
+  \item Engineering and materials science
+  \item Optics and photonics \note{select final categories from the HardwareX list}
+\end{itemize}
+\end{minipage}\\
+Hardware type &
+\begin{minipage}[t]{\linewidth}
+\begin{itemize}[nosep,leftmargin=1.2em]
+  \item Electrical engineering and computer science
+  \item Measurement / instrumentation and control
+\end{itemize}
+\end{minipage}\\
+Closest commercial analog & Multichannel source-measure systems for photonic biasing, e.g.\ Qontrol Q8iv/BP modules and multi-channel Keithley 2400-class SMUs. \todo{confirm exact comparison products + prices} \\
+Open source license & Hardware: CERN-OHL-S v2; Firmware/software: MIT \note{confirm} \\
+Cost of hardware & \todo{total build cost from BOM; per-channel cost} \\
+Source file repository & \todo{Zenodo DOI} (mirror: \todo{GitHub URL}) \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% =====================================================================
+\section{Hardware in context}
+\label{sec:context}
+
+Programmable photonic integrated circuits (PICs) have become a central platform
+for optical communications, sensing, microwave photonics, and increasingly for
+optical computing and quantum information
+processing~\cite{bogaerts2020programmable}. What makes these circuits
+\emph{programmable} is a dense fabric of tunable elements --- meshes of
+Mach--Zehnder interferometers and ring resonators whose phase is set
+electrically~\cite{bogaerts2020programmable,clements2016optimal}. The dominant
+tuning mechanism is the thermo-optic effect: a resistive micro-heater, commonly
+a titanium-nitride (TiN) filament patterned over the waveguide, dissipates
+electrical power and locally shifts the refractive
+index~\cite{harris2014efficient}. A single modern device can
+integrate from tens to several hundred such heaters, and each must be held at an
+independent, stable bias for the circuit to hold a programmed state.
+
+Two requirements make driving these heaters non-trivial at scale. First, the
+relevant control variable is dissipated \emph{power}, not drive current, and the
+heater resistance drifts with temperature and ages over time; robust operation
+therefore benefits from reading back the voltage across each heater so that
+resistance and power can be computed and servoed in situ, rather than driven
+open-loop~\cite{milanizadeh2019canceling}. \note{verify this closed-loop cite
+fits; alternatives: Padmaraju \& Bergman thermal-stabilization review.} Second,
+the channel count is large. Driving every heater from a laboratory
+source-measure unit (SMU) is accurate but prohibitively expensive and bulky
+beyond a handful of channels. Dedicated solutions exist at both ends of the
+spectrum: commercial multichannel driver modules
+(e.g.\ Qontrol~\cite{qontrol_q8a,qontrol_q8iv}) offer dense drive with optional
+readback but at a substantial per-channel cost, while research-grade custom
+CMOS controllers~\cite{sacchi2025controller} demonstrate excellent density and
+power but require ASIC fabrication and are not reproducible open hardware. On
+the open-source side, source-measure designs are typically single-channel
+bench instruments (e.g.\ the uSMU~\cite{troughton_usmu}); to our knowledge no
+published open design combines dense multichannel current drive with
+per-channel voltage readback at the scale photonic meshes need. \todo{sweep
+HardwareX/JOSS/OSF for further open multichannel drivers before submission ---
+reviewers will check that prior open hardware is cited.} There remains a need
+for a low-cost, fully open, and readily reproducible controller that combines
+dense current drive with per-channel readback.
+
+This paper presents \emph{Koi 8$\times$8}, an open-source controller named for
+its stack topology --- eight stackable daughterboards of eight channels each,
+not any particular photonic mesh geometry --- that drives up to \textbf{64
+independent current-source channels} and measures the
+voltage developed across each load, so the host can compute per-channel
+resistance and power in situ. The design targets the accuracy regime that
+matters for heater tuning: \emph{relative / ratiometric} accuracy. Each
+daughterboard carries its own precision voltage reference (eight in total),
+shared by that board's DAC and ADC, so the commanded drive and the measured
+readback are scaled by the same reference and its error cancels in the derived
+resistance; channels on the same board are additionally compared against the
+same reference, so common-mode errors cancel between adjacent tuning elements.
+Board-to-board matching is bounded by the reference initial tolerance and is
+characterized in Section~\ref{sec:validation}. \todo{report measured
+board-to-board reference spread (REF5030, $\pm$0.05\,\% initial tolerance)
+alongside the calibration data.} Absolute accuracy is available through an
+optional one-time calibration against a reference SMU.
+
+\paragraph{Contribution.}
+\begin{itemize}[nosep]
+  \item A stackable controller + daughterboard architecture scaling from 8 to
+        64 channels from commodity parts (RP2040, DAC80508, AD7193, XTR200).
+  \item Per-channel closed-loop readout enabling in-situ $R$ and power
+        measurement, with an analytic correction for the on-board sense
+        divider current.
+  \item A fast continuous-conversion scan that reads a two-board, 16-channel
+        system in $\approx$80\,ms (measured), $\sim$40$\times$ faster than
+        per-channel single-shot conversion. \todo{measure the full 64-channel
+        scan time; the readout is not yet optimized (headroom: SPI clock,
+        overlapping the per-board scans) --- quantify before submission.}
+  \item Open hardware, firmware, host software, and calibration tooling.
+\end{itemize}
+
+% =====================================================================
+\section{Hardware description}
+\label{sec:description}
+
+\todo{Figure: system block diagram (controller + 8 daughterboards, SPI buses,
+decoders). Place as figures/block\_diagram.pdf.}
+
+The system is a host-commanded instrument. A PC sends per-channel current
+setpoints (in mA) over USB serial; the firmware sources the commanded current
+through each load and reports the measured voltage, from which the host
+computes resistance and power.
+
+\subsection{Signal chain (per channel)}
+Each of the 64 channels is an independent loop: an 8-channel DAC sets the input
+of a precision industrial current transmitter (Texas Instruments XTR200, a
+3-wire current/voltage transmitter) operated as a current source, the sourced
+current flows through the external load (a TiN heater in the target
+application) to ground, and an 8-channel 24-bit $\Sigma\Delta$ ADC measures the
+voltage developed across the load through a 6:1 input divider.
+
+Using an industrial transmitter outside its headline 4--20\,mA niche is a
+deliberate design choice, and it is what makes the channel density affordable:
+the XTR200 integrates the complete precision output stage in one commodity
+package ($\sim$US\$1.5), absorbs the sourcing dissipation in a part designed
+for continuous industrial drive, and its datasheet figures --- span error
+$\le\pm0.065$\,\%, nonlinearity $\pm0.003$\,\%, output impedance 47\,G$\Omega$
+--- match or beat a discrete op-amp current source that would cost more board
+area, calibration effort, and thermal management per channel. Eight sources
+per daughterboard therefore add no exotic parts and no heatsinking. The
+design's economy comes not from a new circuit but from recognizing that a
+mass-manufactured industrial part --- cheap because it is produced in volume
+for a market far larger than laboratory instrumentation --- already integrates
+the entire precision source channel; the contribution is the system this
+enables.
+
+The XTR200's internals are themselves the de-facto standard current-transmitter
+architecture --- a two-op-amp, sense-resistor-feedback voltage-to-current
+converter: an input amplifier servos the control voltage across a precision set
+resistor, and a second amplifier with an integrated PMOS pass transistor
+reproduces the resulting current at the output. An early revision of this
+design implemented the same topology discretely with a precision dual op amp
+(OPA2192) per channel. The integrated part displaced it on three grounds that
+compound at 64 channels: (i) its transfer function is set by internally trimmed
+thin-film resistors, so the transconductance is uniform across channels and
+calibration collapses to a single per-channel offset-current reading
+(Section~\ref{sec:validation}), whereas a discrete channel's gain inherits the
+tolerance of its external resistors and would require a two-parameter fit on
+every channel; (ii) its 47\,G$\Omega$ output impedance renders the source
+effectively ideal, leaving the sense divider's known 120\,k$\Omega$ shunt as
+the only load-dependent error --- which is what permits the analytic
+correction in the measurement model below; and (iii) the output stage,
+short-circuit protection, and active-low output-disable pin (used here for
+power-up sequencing of the per-board front-end enables) arrive integrated,
+where a discrete channel would add a pass transistor, protection network, and
+enable gating per channel --- board area that would break the
+eight-channels-per-daughterboard density.
+\note{verify the exact datasheet numbers + wording against the XTR200
+datasheet before submission.}
+
+\subsection{Architecture}
+A single RP2040 (Raspberry Pi Pico) controller drives up to eight identical
+daughterboards. Each daughterboard carries one \textbf{DAC80508} (8-ch,
+write-only), one \textbf{AD7193} (8-ch ADC), eight \textbf{XTR200} current
+sources, and its own \textbf{REF5030} 3.0\,V precision reference shared by that
+board's DAC and ADC --- the basis of the per-board ratiometric accuracy
+argument (Section~\ref{sec:context}). Addressing uses two 74HC138 3-to-8
+decoders (one per ADC/DAC bank)
+for chip-select, and one SN74LV595 shift register to gate each board's analog
+front ends.
+
+\begin{itemize}[nosep]
+  \item \textbf{SPI0} (shared): AD7193 ADCs + the SN74LV595 front-end enable
+        register. Mode 3, 1\,MHz.
+  \item \textbf{SPI1} (write-only): DAC80508 bus.
+  \item \textbf{Addressing}: shared address lines select daughterboard $k$ via
+        the inverted decoder mapping (address $= 8-k$); one bank enable
+        (ADC\_EN / DAC\_EN) is asserted at a time.
+\end{itemize}
+
+\todo{Pull the full subsystem prose from CLAUDE.md: HC138 selector, AD7193
+continuous-scan readout, DAC80508 external-reference/gain setup, XTR595
+active-low front-end enable. This is mostly transcription + figures.}
+
+\subsection{Measurement model}
+The reported voltage is the raw ADC-pin voltage. The true load voltage is
+recovered with the 6:1 sense divider: $V_\text{heater} = V_\text{ADC}\times 6$.
+The divider (100\,k$\Omega$ + 20\,k$\Omega$ = 120\,k$\Omega$) draws a small,
+\emph{known} current from the load node, corrected analytically:
+\[
+  I_\text{heater} = I_\text{source} - \frac{V_\text{heater}}{120\,\text{k}\Omega}.
+\]
+This correction is exact and computed from the live measurement (not a
+calibrated parameter). The XTR200 transconductance ($\approx 0.47$\,V/mA seed)
+and a per-channel offset current ($I_{OS}$) are captured by the calibration in
+Section~\ref{sec:validation}.
+
+% =====================================================================
+\section{Design files summary}
+\label{sec:design-files}
+\todo{Fill once files are archived to Zenodo. Every released file gets a row.}
+
+\renewcommand{\arraystretch}{1.25}
+\noindent\begin{tabularx}{\textwidth}{@{}L{3.4cm} L{2.6cm} L{3.0cm} X@{}}
+\toprule
+\textbf{Design file name} & \textbf{File type} & \textbf{Open source license} & \textbf{Location of the file} \\
+\midrule
+Controller board (schematic + PCB) & KiCad / Gerber & CERN-OHL-S v2 & \todo{repo link} \\
+Daughterboard (schematic + PCB) & KiCad / Gerber & CERN-OHL-S v2 & \todo{repo link} \\
+Firmware (\texttt{src/}, \texttt{include/}) & C++ (PlatformIO) & MIT & \todo{repo link} \\
+Host GUI (\texttt{koi\_gui.py}) & Python & MIT & \todo{repo link} \\
+Calibration / sweep tooling & Python & MIT & \todo{repo link} \\
+Bill of materials & CSV / XLSX & CC-BY-4.0 & \todo{repo link} \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% =====================================================================
+\section{Bill of materials summary}
+\label{sec:bom}
+\todo{Add unit costs, quantities (note per-board vs per-system), suppliers, and
+part numbers. Provide the full itemised BOM as a supplementary CSV; summarise
+the major line items here.}
+\todo{State the assembly method and its cost explicitly --- the DAC80508 and
+AD7193 are fine-pitch packages, so say whether the reference build is hand
+reflow (stencil + hot plate/oven) or a PCBA service, and include assembly in
+the system cost either way. HardwareX judges reproducibility by whether a
+typical lab can actually build it.}
+
+\renewcommand{\arraystretch}{1.2}
+{\small
+\setlength{\tabcolsep}{4pt}
+\noindent\begin{longtable}{@{}L{3.4cm} c L{1.3cm} L{1.3cm} L{1.7cm} L{2.5cm} L{2.5cm}@{}}
+\toprule
+\textbf{Designator / component} & \textbf{Qty} & \textbf{Unit cost (USD)} & \textbf{Total cost (USD)} & \textbf{Supplier} & \textbf{Supplier Part No.} & \textbf{Manufacturer Part No.} \\
+\midrule
+\endhead
+Raspberry Pi Pico (RP2040) controller & 1 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+DAC80508 (8-ch DAC) & 8 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+AD7193 (8-ch 24-bit ADC) & 8 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+XTR200 current source & 64 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+74HC138 decoder & 2 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+SN74LV595 shift register & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+REF5030 3.0\,V precision voltage reference (one per daughterboard) & 8 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Sense divider resistors (100\,k/20\,k) & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+Passives, connectors, stacking headers (consolidated) & --- & --- & \todo{} & \todo{} & --- & --- \\
+PCBs (controller + 8 daughterboards) & 9 & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+PCB assembly (fine-pitch reflow / PCBA service) & 9 & \todo{} & \todo{} & \todo{} & --- & --- \\
+\midrule
+\multicolumn{3}{r}{\textbf{System total}} & \todo{} & & & \\
+\bottomrule
+\end{longtable}}
+\renewcommand{\arraystretch}{1.0}
+
+\noindent{\small\color{red} Placeholder values --- table will be updated with
+final quantities, unit costs, and supplier/manufacturer part numbers from the
+released BOM spreadsheet.}
+
+% =====================================================================
+\section{Build instructions}
+\label{sec:build}
+\todo{Step-by-step assembly with photos: PCB fabrication notes (production uses
+ENIG finish --- HASL test boards oxidise and intermittently fail detection),
+population order, stacking the daughterboards, reference connections. Then
+firmware flashing:}
+\begin{verbatim}
+pio run -t upload      # build + flash the RP2040 over USB
+pio device monitor     # serial console @ 115200
+\end{verbatim}
+
+% =====================================================================
+\section{Operation instructions}
+\label{sec:operation}
+
+The firmware runs a line-based ASCII command server over USB serial (115200,
+\texttt{\textbackslash n}-terminated). Each command returns exactly one reply
+line. Channels use a flat global index $g = \text{board}\times 8 +
+\text{channel}$ (0--63); unpopulated channels report \texttt{nan}. Populated
+boards are auto-detected at boot. Every \texttt{OK} reply echoes its command
+name so the host can confirm a reply belongs to the command it sent, and every
+firmware-initiated line begins with \texttt{\#} (boot banner, calibration
+progress, \texttt{STREAM} dumps, diagnostics), so an unprefixed line is always a
+direct command reply.
+
+\renewcommand{\arraystretch}{1.2}
+\noindent\begin{tabularx}{\textwidth}{@{}L{3.2cm} X L{4.2cm}@{}}
+\toprule
+\textbf{Command} & \textbf{Effect} & \textbf{Reply} \\
+\midrule
+\texttt{*IDN?}            & identify & \texttt{KOI,8x8,fw1.1} \\
+\texttt{*RST}             & all currents 0, front-ends disabled & \texttt{OK *RST} \\
+\texttt{ISETA i0 \dots i63} & set all 64 currents (mA, $g$-order) & \texttt{OK ISETA} \\
+\texttt{ISET g mA}        & set one channel & \texttt{OK ISET <g>} \\
+\texttt{MEASA? [mask]}    & measure all 64 (or masked boards) & \texttt{v0,\dots,v63} \\
+\texttt{MEAS? g}          & measure one channel & \texttt{<volts>} \\
+\texttt{XTR enmask}       & bit $b=1\to$ board $b$ front-ends enabled & \texttt{OK XTR 0x..} \\
+\texttt{AVG n}            & on-micro averages per measurement (1--64) & \texttt{OK AVG <n>} \\
+\texttt{RATE fs}          & AD7193 filter word (speed/noise) & \texttt{OK RATE <fs>} \\
+\texttt{STREAM ON|OFF}    & periodic \texttt{\#} dump for monitoring & \texttt{OK STREAM ON|OFF} \\
+\texttt{RESCAN}           & re-detect boards at runtime & \texttt{OK RESCAN active=0x.. new=0x..} \\
+\texttt{PING? b}          & board liveness (ADC ID + one conversion) & \texttt{OK PING <b> 1|0} \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+\medskip
+A typical experiment loop is \texttt{ISETA \dots} (set), settle, \texttt{MEASA?}
+(read). A Tkinter host GUI (\texttt{koi\_gui.py}) polls \texttt{MEASA?} and
+displays raw and divider-corrected voltage for all 64 channels in an 8$\times$8
+grid; \texttt{sweep\_ch0.py} performs a scripted single-channel current sweep.
+
+% =====================================================================
+\section{Validation and characterization}
+\label{sec:validation}
+\note{This is the critical section for review. Plan: calibrate every channel
+against a Keithley 2400 over 0.25--6 mA, then report the figures below.}
+
+\subsection{Calibration method}
+\label{sec:cal-method}
+
+\paragraph{Bench setup.}
+Every channel is terminated in a known load resistor standing in for the TiN
+heater: a thin-film 1\,k$\Omega$ part with $\le$25--50\,ppm/K temperature
+coefficient in a large package (to bound self-heating: 36\,mW at 6\,mA), whose
+value is taken from an in-situ four-wire measurement rather than from the part
+grade. A dedicated calibration jig PCB carries all 64 loads, permanently
+connected so that every channel remains loaded and driven throughout the
+campaign. Each load carries Kelvin taps at its resistor pads --- a sense pair
+and a force pair --- and a 23-channel bank of four-pole relay stages (paired DPDT signal relays)
+connects one load's taps at a time to a 6.5-digit DMM (Keithley~2100),
+operated in offset-compensated four-wire mode for resistance scans so that
+any constant residual current through the load cancels; a re-positionable
+sense-only harness maps the relay bank onto each third of the array in turn,
+without ever interrupting a drive path. The same taps thus serve two
+functions: four-wire resistance measurement of every load through the jig
+itself (repeatable at any time, e.g.\ warm, to bound drift), and Kelvin
+voltage sensing during the current sweeps, so every sweep point yields the
+load voltage directly and the channel current as
+\[
+  I = \frac{V_\text{DMM}}{R_\text{meas}} + \frac{V_\text{DMM}}{120\,\text{k}\Omega},
+\]
+the second term being the known sense-divider current
+(Section~\ref{sec:description}). Because the DMM is switched across the loads
+in parallel --- never inserted in series --- the current path is never broken:
+all 64 channels remain loaded and driven throughout the scan, i.e.\ the device
+is characterized under representative operating conditions rather than one
+channel at a time into an otherwise idle board. Mechanical relays are used
+(open-contact leakage in the pA range) so the jig itself cannot contribute at
+the microampere level being resolved. A metal-foil transfer-standard resistor
+and a Keithley 2400 source-measure unit inserted in series on a small number of
+channels provide an independent cross-check of the voltage-over-resistance
+method. The jig design files (schematic, PCB, control script) are released
+with the paper. \todo{instrument list with calibration status; uncertainty
+budget table (DMM V, load R tolerance/TCR/self-heating, divider term $\to$
+total $I$ uncertainty) vs.\ the $\pm4\,\mu$A $I_{OS}$ being resolved.}
+
+\paragraph{Sweep protocol and fit.}
+Each channel is swept over 0.25--6\,mA in both directions --- the linear
+operating regime; sub-100\,$\mu$A points are excluded because the source
+cannot sink current, so readings near zero bottom out rather than extrapolate
+linearly. A per-channel linear fit of commanded versus measured current yields
+\texttt{calSlope} (the transconductance, expected $\approx$0.47\,V/mA and
+shared across channels, consistent with the trimmed-thin-film argument of
+Section~\ref{sec:description}) and \texttt{calOffset} (the per-part offset
+current $I_{OS}$, approximately equal to the enabled zero-command reading).
+The calibration proper therefore uses \emph{only} the 1\,k$\Omega$ loads; many
+sweep points serve to verify linearity and average noise, not to fit
+additional parameters.
+
+\paragraph{Separating current-side from voltage-side errors.}
+A single-load sweep, however many points it contains, carries a structural
+confound: with a fixed load, $V = IR$ is perfectly correlated with $I$, so an
+error term that scales with \emph{current} (XTR200 gain error, true $I_{OS}$,
+DAC error) is indistinguishable from one that scales with \emph{voltage}
+(board leakage, the $V/120\,\text{k}\Omega$ divider correction, ADC or divider
+gain error) --- both produce identical residuals. To break the correlation,
+one board is re-run with its loads exchanged for $\sim$300\,$\Omega$ and
+$\sim$2\,k$\Omega$ parts of the same grade: at the same 3\,mA setpoint the
+load then sees $\sim$0.9, $\sim$3, and $\sim$6\,V across the three load sets
+--- the same current at a $\sim$7$\times$ span of voltage. Comparing the
+apparent per-channel offset across the three loads attributes it: an offset
+that is invariant with load is genuinely current-side (real $I_{OS}$, and
+belongs in \texttt{calOffset}), whereas one that scales with $V$ is
+voltage-side (leakage or divider-correction error) and must \emph{not} be
+folded into \texttt{calOffset} --- doing so would be correct only at the
+calibration load and would mis-correct on a real heater of different
+resistance. The same re-run validates the analytic divider correction
+directly, exercises a wider portion of the ADC span, and yields a
+load-independence figure for the source. This is an attribution measurement,
+not a three-point calibration: if it confirms the error budget is
+current-side, the remaining seven boards need only the 1\,k$\Omega$ dataset.
+
+\subsection{Current-mode characterization}
+\label{sec:current-char}
+The current-drive characterization mirrors the per-parameter methodology of a
+representative commercial module (Qontrol Q8a~\cite{qontrol_q8a}) so the two can
+be compared plot-for-plot; all figures below report \emph{Koi}'s own measured
+data. Note the differing operating ranges (Koi 0--6\,mA vs.\ Q8a 0--100\,mA), so
+resolution/precision are additionally reported as a fraction of full scale.
+\todo{Report span error, nonlinearity, and per-channel $I_{OS}$ after cal.}
+\emph{Preliminary bench data (single board, 2026-06-17):} XTR200 gain is
+near-ideal (datasheet span error $\le \pm0.065\%$, nonlinearity $\pm0.003\%$),
+so \texttt{calSlope} is treated as a shared constant; the per-channel offset
+$I_{OS}$ is the term needing measurement, bench-measured $\approx\pm4\,\mu$A
+(datasheet $\pm10\,\mu$A max).
+\todo{BLOCKER --- resolve the uniform $-24\,\mu$A static offset seen on the
+2026-07-03 devkit sweep (all channels, boards 0--2) before any per-channel
+$I_{OS}$ numbers are trusted: it is 2.4$\times$ the datasheet max and uniform
+across parts, so it is almost certainly systematic, not per-part $I_{OS}$.
+$\sim$10\,$\mu$A is attributed to board leakage; the remaining $\sim$14\,$\mu$A
+is unattributed (current-side vs.\ measurement-side still open --- the
+two-load attribution run of Section~\ref{sec:cal-method} is the measurement
+that decides this). Run the isolation ladder in the test plan on the devkit.}
+
+% --- Current transfer function (coarse + fine) ---
+\begin{figure}[htbp]
+  \centering
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT TRANSFER FUNCTION\\(nominal vs.\ measured, all 64 ch)}\hfill
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT TRANSFER FUNCTION (fine)\\(single-code region)}
+  \caption{Current transfer function. Nominal commanded current vs.\ current
+  measured by an external reference (Keithley 2400) across all 64 channels; the
+  fine panel resolves the low-current, single-code region.}
+  \label{fig:i-transfer}
+\end{figure}
+
+% --- Current deviation: ext DMM + onboard ADC ---
+\begin{figure}[htbp]
+  \centering
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT DEVIATION\\(measured with ext.\ DMM)}\hfill
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT DEVIATION\\(measured with onboard ADC)}
+  \caption{Current deviation from nominal. Left: against an external reference
+  DMM (source accuracy). Right: against the on-board AD7193 readback (closed-loop
+  measurement accuracy, after the sense-divider correction).}
+  \label{fig:i-deviation}
+\end{figure}
+
+% --- Single-code step size + DNL/INL ---
+\begin{figure}[htbp]
+  \centering
+  \plotph{0.30\textwidth}{4.2cm}{CURRENT SINGLE-CODE\\STEP SIZE}\hfill
+  \plotph{0.30\textwidth}{4.2cm}{CURRENT-MODE DNL\\(diff.\ nonlinearity)}\hfill
+  \plotph{0.30\textwidth}{4.2cm}{CURRENT-MODE INL\\(int.\ nonlinearity)}
+  \caption{Code-level linearity. Single-code current step-size distribution
+  (nominal LSB set by the DAC80508 over the 0--6\,mA span), and current-mode
+  differential (DNL) and integral (INL) nonlinearity.}
+  \label{fig:i-linearity}
+\end{figure}
+
+% --- Precision / std dev ---
+\begin{figure}[htbp]
+  \centering
+  \plotph{0.6\textwidth}{4.4cm}{CURRENT STANDARD DEVIATION\\(at fixed setpoint, e.g.\ 3\,mA)}
+  \caption{Current precision: distribution of repeated measurements at a fixed
+  commanded current, quantifying single-channel noise (reported as $1\sigma$).}
+  \label{fig:i-precision}
+\end{figure}
+
+\subsection{Sense-divider correction}
+\todo{Validate $I_\text{heater}=I_\text{source}-V_\text{heater}/120\text{k}$
+against ground truth. Bench estimate: $\sim$0.68\,\% at 0.81\,V (1\,mA into
+811\,$\Omega$), scaling with $V_\text{heater}$.}
+
+\subsection{Noise and resolution}
+\todo{ADC noise floor / effective resolution vs.\ \texttt{RATE} (filter word)
+and \texttt{AVG} (on-micro averaging).}
+
+\subsection{Thermal validation}
+\label{sec:thermal}
+Section~\ref{sec:description} claims the design needs no heatsinking because
+the dissipation is distributed: worst case per transmitter is roughly
+$(V_\text{supply}-V_\text{load})\times I \approx 120$\,mW (6\,mA into a
+near-short), i.e.\ $\sim$1\,W per fully driven board spread across eight
+packages --- the same distributed-dissipation approach used by commercial
+multichannel drivers, so this is standard practice to be \emph{validated}, not
+a novelty to be claimed. \todo{Validate: all 64 channels at maximum current
+into worst-case (low-R) loads, thermal soak to steady state; report package /
+board temperatures (IR camera or thermocouple), the temperature rise above
+ambient, and --- the part users actually care about --- how much the warm-up
+shifts the sourced current and the reference (couples to the drift and warm-up
+tests in the noise section). State the derating, if any, for enclosed /
+stacked operation.}
+
+\subsection{Throughput}
+\todo{Report the full 64-channel scan time vs.\ number of populated boards and
+\texttt{RATE}. Note the readout is not yet optimized --- headroom remains
+(higher SPI clock, overlapping the per-board scans) --- state what was measured
+and what is achievable.} The continuous-conversion sequencer reads one full
+8-channel board per pass instead of per-channel single conversions, reducing a
+two-board, 16-channel readout from $\approx$3.4\,s to $\approx$80\,ms
+(measured) --- gated by the filter rate rather than a fixed per-channel restart
+penalty.
+
+\subsection{Channel-to-channel crosstalk and board reproducibility}
+\todo{Quantify crosstalk between adjacent channels and consistency across the
+8 daughterboards.}
+
+\begin{figure}[htbp]
+  \centering
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT-MODE CROSSTALK\\(aggressor ch1--7 vs.\ victim ch0)}\hfill
+  \plotph{0.46\textwidth}{4.4cm}{CURRENT-MODE POWER INTO LOAD\\(power vs.\ current, per load R)}
+  \caption{Left: current-mode crosstalk --- shift in a victim channel's current
+  as the other seven channels are swept across their range. Right: power
+  delivered to representative loads vs.\ commanded current, with the nominal
+  maximum-power point marked.}
+  \label{fig:i-crosstalk-power}
+\end{figure}
+
+% =====================================================================
+\section{Capabilities and use cases}
+\label{sec:capabilities}
+\todo{Demonstration: drive an array of TiN heaters on a photonic chip, measure
+$R$ vs.\ power, show phase tuning / a programmed mesh state. This demo is what
+backs the closed-loop-tuning claim in the abstract and Section~1 --- it is
+required, not optional, and is deliberately scheduled \emph{last}: it depends
+on first resolving the offset-current anomaly and tightening the measurement
+chain (Section~\ref{sec:validation}). State limitations: 0--6\,mA range,
+sub-100\,$\mu$A unreliable, write-only DAC bus, etc.}
+
+% =====================================================================
+\section*{Declarations}
+\todo{CRediT author contributions, conflict-of-interest statement, funding,
+data/code availability (Zenodo DOI), acknowledgements.}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

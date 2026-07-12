@@ -1,0 +1,30 @@
+Section,Designators (per board),Description,Value / Part,Package,Qty per board,Qty system,Unit price USD,Ext price USD,Notes
+"Daughterboard (x8)","U0-U7",Precision current-source front end,XTR200,WSON-10 2x3mm,8,64,1.456,93.18,"66 ordered (64 populated + 2 spares); spares add $2.91"
+"Daughterboard (x8)",U11,24-bit sigma-delta ADC (8-ch readout),AD7193,TSSOP-28,1,8,18.13,145.04,
+"Daughterboard (x8)",U20,16-bit 8-ch DAC,DAC80508Z,WQFN-16 3x3mm,1,8,15.50,124.00,
+"Daughterboard (x8)",U10,3.0 V precision voltage reference,REF5030EIDR,SOIC-8,1,8,6.00,48.00,One per board; shared by that board's DAC + ADC (no 9th ref on controller)
+"Daughterboard (x8)",U8,Parallel-load 8-bit shift register,SN74LV165ADBR,TSSOP-16,1,8,0.461,3.69,Mouser 595-SN74LV165ADBR (cut tape)
+"Daughterboard (x8)","R19-R26",Per-channel precision resistor (0.1% thin film),4.7k (RS PRO RSTNF03BTC4701),0603,8,64,0.067,4.28,"Actual RS part (0.646 kr) - KiCad BOM says '5k'; supersedes todo.txt's provisional $1.00/pc estimate"
+"Daughterboard (x8)","R1-R4, R9-R12",Sense divider top (6:1) 0.1% thin film,100k (RS PRO RSTNF02BTC1003),0402,8,64,0.050,3.22,RS 243-0436 (0.486 kr)
+"Daughterboard (x8)","R5-R8, R13-R16",Sense divider bottom (6:1) 0.1% thin film,20k (RS PRO TRSTNF02BTCY2002),0402,8,64,0.050,3.22,"Priced same as the 100k divider partner (RS line-item price was a pack anomaly)"
+"Daughterboard (x8)","R17, R28, R29",Resistor,100k,0603,3,24,TBD,,Jellybean passive
+"Daughterboard (x8)",R27,Resistor,1.5,0603,1,8,TBD,,Jellybean passive
+"Daughterboard (x8)","C1-C8, C10, C12, C14-C15, C17-C22",Decoupling capacitor MLCC 50V,100nF (Wurth 885012206095R),0603,18,144,0.045,6.42,RS 257-1100 (0.431 kr)
+"Daughterboard (x8)","C11, C13, C16, C23",Capacitor MLCC 50V 10%,1uF (RS PRO RSMC03KTB500105),0603,4,32,0.047,1.51,RS 271-0969 (0.457 kr)
+"Daughterboard (x8)",C9,Bulk capacitor,10uF,0603,1,8,TBD,,See capacitor allowance note
+"Daughterboard (x8)","D1-D3",Indicator LED,LED,0603,3,24,TBD,,
+"Daughterboard (x8)",L1,Ferrite bead 1.5 A,FerriteBead,0603,1,8,TBD,,
+"Daughterboard (x8)",J1,Card-edge connector (PCIe x4 pattern),Custom_PCIe_x4,card edge,1,8,0.00,0.00,Edge fingers on the PCB itself - no component cost
+"Daughterboard (x8)","19x test points",Test point pads,TestPoint,pad,19,152,0.00,0.00,Bare pads - no component cost
+Motherboard (x1),A1,Controller,Raspberry Pi Pico (RP2040),SMD module,1,1,7.00,7.00,
+Motherboard (x1),"U1, U5",3-to-8 decoder (ADC / DAC chip select),SN74LV138 (74HC138),SSOP-16,2,2,0.49,0.98,
+Motherboard (x1),U3,Shift register (XTR front-end enables),SN74LV595,TSSOP-16,1,1,1.00,1.00,
+Motherboard (x1),"J1-J8",PCIe x4 socket (daughterboard slots),Samtec PCIE-064-02-F-D-TH,through-hole,8,8,2.29,18.32,"DigiKey SAM9742-ND; $2.29 @ qty 1-49 (breaks: $1.864 @ 50, $1.582 @ 100)"
+Motherboard (x1),"J9-J11",50-pin FFC connector (channel outputs),Molex 54132-5033,0.5 mm horizontal,3,3,3.00,9.00,"todo.txt flags ambiguity: $3 each (=$9) or $3 total - confirm"
+Motherboard (x1),J12,DC barrel jack with switch pin,Barrel_Jack,through-hole,1,1,1.00,1.00,
+Motherboard (x1),PS1,Isolated DC-DC converter 12 V,XP Power DSM2-12-S3-S,THT,1,1,10.37,10.37,
+Motherboard (x1),"C1-C3",Decoupling capacitor MLCC 50V,100nF (Wurth 885012206095R),0603,3,3,0.045,0.13,Same RS part as daughterboard decoupling
+PCB fabrication,,Daughterboard PCB (analog),daughterboard,4-layer,1,8,30.00,240.00,
+PCB fabrication,,Motherboard PCB,motherboard,,1,1,3.00,3.00,
+Assembly,,PCB assembly,,,,,TBD,,Not yet quoted (todo.txt: TBA)
+TOTAL,,,,,,,,723.36,"Sum of priced lines (populated qty). RS passive prices converted at 1 SEK = 0.1035 USD (Jul 2026), assumed ex-VAT. TBD items outstanding: assembly, 10uF caps, 100k 0603, 1.5R, LEDs, ferrite (all minor)"

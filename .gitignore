@@ -1,0 +1,37 @@
+# --- KiCad working files ---
+*.lck
+~*.lck
+_autosave-*
+*-bak
+*.bak
+*-backups/
+fp-info-cache
+*.kicad_prl
+
+# --- PlatformIO / firmware build ---
+.pio/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- LaTeX aux (main.pdf stays tracked as a deliverable) ---
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# --- Local tool settings ---
+.claude/settings.local.json
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db

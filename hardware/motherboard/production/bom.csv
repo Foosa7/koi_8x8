@@ -1,0 +1,9 @@
+﻿Designator,Footprint,Quantity,Value,LCSC Part #
+A1,RaspberryPi_Pico_SMD,1,RaspberryPi_Pico,
+"C1, C2, C3",0603,3,0.1uF,
+"J1, J2, J3, J4, J5, J6, J7, J8",SAMTEC_PCIE-064-02-X-D-TH,8,Custom_PCIe_x4,
+"J10, J11, J9",Molex_54132-5033_1x50-1MP_P0.5mm_Horizontal,3,Conn_01x50_MountingPin,
+J12,BarrelJack_Horizontal,1,Barrel_Jack_Switch_Pin3Ring,
+PS1,Converter_DCDC_XP_POWER-IAxxxxS_THT,1,DSM2-12-S3-S,
+"U1, U5",SSOP-16_5.3x6.2mm_P0.65mm,2,74HC138,
+U3,TSSOP-16_4.4x5mm_P0.65mm,1,SN74LV595,

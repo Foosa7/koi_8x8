@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "daughterboard")(type "KiCad")(uri "${KIPRJMOD}/daughterboard.kicad_sym")(options "")(descr ""))
+)

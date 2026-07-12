@@ -1,0 +1,140 @@
+================================================================================
+KOI 8x8 — VALIDATION & CHARACTERIZATION TEST PLAN
+Feeds Section 7 (Validation) of the HardwareX manuscript.
+Status: [ ] = not started   [~] = partial   [x] = done
+================================================================================
+
+--------------------------------------------------------------------------------
+INSTRUMENTS NEEDED (to borrow / get lab access to)
+--------------------------------------------------------------------------------
+MUST HAVE
+  * Calibrated SMU — Keithley 2400 / 2450 (have 2400; CHECK ITS CAL DATE,
+    ask the owning lab for the cal certificate)
+  * 6.5-digit DMM — Keysight 34461A / 34465A, or Keithley DMM6500 / 2000.
+    This is the independent cross-check for everything; highest priority loan.
+  * Precision reference resistors — Vishay foil (Z-foil / VPG) or similar,
+    0.01–0.1 % tolerance, <=25 ppm/K TCR, values spanning the load range
+    (~200 ohm – 2 kohm). These go on the precision-resistor PCB.
+  * GPIB/USB adapter for the 2400 (already planned) or use RS-232.
+
+NICE TO HAVE
+  * Second DMM or a calibrated precision shunt (0.01 %) — gives a third
+    opinion on current if the 2400 and DMM disagree.
+  * Ambient temperature logger (even a TMP117 breadboard logger is fine) —
+    runs alongside every long acquisition.
+  * Oscilloscope (any decent 100 MHz scope) — settling-time measurement only.
+  * Thermal chamber / oven — tempco of full system (optional, stretch goal).
+  * Photonic chip with TiN heaters + optical readout — the application demo
+    (Section 8). Strongly lifts the paper if accessible.
+
+--------------------------------------------------------------------------------
+0. PREREQUISITES
+--------------------------------------------------------------------------------
+[ ] 0.1  Precision-resistor PCB assembled; every resistor measured 4-wire with
+         the 6.5-digit DMM at low current (avoid self-heating). Record value +
+         temperature. Do NOT use nominal values anywhere downstream.
+[ ] 0.2  Keithley 2400 sanity check: source a few fixed currents into a
+         measured precision resistor, read V with the DMM, confirm
+         I = V/R agrees with the 2400's readback to well under 10 uA
+         (the XTR200 IOS spec). If they disagree, resolve BEFORE calibrating.
+[ ] 0.3  Measure the 3.0 V system reference with the DMM. Record absolute
+         value + drift over a warm-up hour. (Feeds the ratiometric argument.)
+[ ] 0.4  Log firmware version, RATE, AVG settings with every dataset.
+         Every CSV gets: date, board serial, channel, ambient temp.
+
+--------------------------------------------------------------------------------
+1. CURRENT-SOURCE CALIBRATION (the core campaign)
+--------------------------------------------------------------------------------
+[ ] 1.1  Per-channel sweep, ALL populated channels: 0.25 -> 6 mA in >=20 steps,
+         then back down (descending pass catches hysteresis / settling bias).
+         Keithley in series as ammeter (or across precision shunt).
+[ ] 1.2  Linear fit per channel -> calSlope, calOffset (IOS).
+         Deliverables: histogram of IOS across channels; residuals-after-fit
+         plot (THE key figure); span error + nonlinearity numbers vs the
+         XTR200 datasheet (+-0.065 % span, +-0.003 % NL).
+[ ] 1.3  Confirm slope is shareable: report channel-to-channel slope spread;
+         if < datasheet span error, justify single shared calSlope.
+[ ] 1.4  Sub-100 uA boundary: fine sweep 0 -> 250 uA, show where the source
+         stops following (can't sink). Publish as a stated limitation with data.
+[ ] 1.5  Retire the single-point offset cal: quantify how much the old method's
+         IOS estimate shifts when R_known is replaced by the measured value
+         (this documents the load-R-tolerance pitfall for the paper).
+
+--------------------------------------------------------------------------------
+2. ADC-PATH OFFSET INVESTIGATION (isolation ladder — anomaly subsection)
+--------------------------------------------------------------------------------
+STATUS 2026-07-06: BLOCKER for Sec. 1 cal numbers. The uniform -24 uA offset
+(2026-07-03, all channels boards 0-2) is being chased on the devkit: ~10 uA
+attributed to leakage current; remaining ~14 uA unattributed. This ladder is
+the tool to attribute it — run it before the calibration campaign.
+Change ONE thing per step; record ADC reading AND DMM-at-the-ADC-pin each step.
+[ ] 2.1  ADC input shorted to ground -> true ADC-path offset
+         (expect ~0; internal zero-scale cal runs at boot).
+[ ] 2.2  Divider + load connected, XTR front-end DISABLED -> leakage terms
+         (XTR ILEAK spec is 0.35 nA; anything big here is board-level leakage).
+[ ] 2.3  Front-end ENABLED, zero command -> adds true XTR IOS term.
+[ ] 2.4  DMM on the ADC pin at each rung: splits "ADC misreads the pin" from
+         "pin voltage is real". (Bench notes say the ~3 mV is real pin voltage
+         — this ladder proves it and attributes it.)
+[ ] 2.5  Repeat 2.1–2.4 on >=3 channels across >=2 boards.
+         Deliverable: offset budget table, each term attributed to a physical
+         cause with magnitude.
+
+--------------------------------------------------------------------------------
+3. SENSE-DIVIDER CORRECTION VALIDATION
+--------------------------------------------------------------------------------
+[ ] 3.1  Measure actual divider resistances (4-wire) on a few channels;
+         compare with 100k/20k nominal, propagate tolerance into the
+         I_heater = I_source - V_heater/120k correction.
+[ ] 3.2  Ground truth: command I, measure true load current with Keithley in
+         series, show the analytic correction closes the ~0.68 %-at-0.81 V gap
+         across the full voltage range. Plot error with and without correction.
+
+--------------------------------------------------------------------------------
+4. NOISE, RESOLUTION, STABILITY
+--------------------------------------------------------------------------------
+[ ] 4.1  Input-referred noise vs RATE (several FS words) and vs AVG (1..64),
+         zero-command / shorted input. Report effective resolution (bits).
+[ ] 4.2  Allan deviation vs averaging time at a fixed mid-range setpoint —
+         shows users where averaging stops helping.
+[ ] 4.3  Overnight (>=12 h) log at fixed setpoint, ambient temperature logged
+         alongside. Report drift in uA and correlation with temperature.
+[ ] 4.4  Warm-up transient: cold power-on -> log 30 min, report time to spec.
+
+--------------------------------------------------------------------------------
+5. CROSSTALK & REPRODUCIBILITY
+--------------------------------------------------------------------------------
+[ ] 5.1  Static crosstalk: victim channel at fixed setpoint; step aggressor
+         neighbor 0 <-> 6 mA; log victim shift. Same-board neighbor AND
+         adjacent-board channel. Report in uA and % of setpoint.
+[ ] 5.2  All-on stress: victim reading with 0 vs 63 other channels at max —
+         supply/reference sag check under full load.
+[ ] 5.3  Inter-board spread: identical cal (Sec 1) on every populated board;
+         report spread of slope/IOS distributions across boards.
+[ ] 5.4  Reseat repeatability: full cal on one board, unplug/reseat, recal —
+         quantifies connector contribution (also speaks to HASL/ENIG story).
+
+--------------------------------------------------------------------------------
+6. TIMING / THROUGHPUT
+--------------------------------------------------------------------------------
+[ ] 6.1  Full-system MEASA? scan time vs number of populated boards and vs
+         RATE. (Have: 16 ch ~= 80 ms; need the 64-ch point for the paper.)
+[ ] 6.2  Settling time after ISET: scope (or fast MEAS? polling) on the load,
+         report time-to-0.1 % for a full-scale step. Justifies the "settle"
+         delay in the experiment loop.
+
+--------------------------------------------------------------------------------
+7. APPLICATION DEMO (stretch, Section 8 of the paper)
+--------------------------------------------------------------------------------
+[ ] 7.1  Drive TiN heaters on a real photonic chip: R vs dissipated power
+         curve per heater; ideally an optical phase/transmission tune showing
+         closed-loop power servo using the readback.
+
+--------------------------------------------------------------------------------
+NOTES
+--------------------------------------------------------------------------------
+* Ratiometric claim: use 0.3 + Sec 1 data to show absolute error predicted by
+  the measured reference offset is common-mode and cancels channel-to-channel.
+* Every plot in the paper must trace back to a CSV in the repo (Zenodo later).
+* Keep dissipation in reference resistors low during cal, or measure their
+  self-heating shift and state it.

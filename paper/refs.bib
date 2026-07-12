@@ -1,0 +1,91 @@
+% Bibliography for the Koi 8x8 HardwareX manuscript.
+% Entries marked VERIFY were added from memory/web search and should be
+% checked against the actual paper before submission.
+% Still TODO: key datasheets (DAC80508, AD7193, XTR200) if cited directly.
+
+% ---------------------------------------------------------------- commercial
+@manual{qontrol_q8a,
+  title        = {{Q8a} User Manual},
+  author       = {{Qontrol Ltd.}},
+  organization = {Qontrol Ltd.},
+  address      = {Bristol, UK},
+  edition      = {3.2},
+  year         = {2024},
+  note         = {\url{https://qontrol.co.uk/wp-content/uploads/2024/07/Q8a-User-Manual-3.2-1.pdf} (accessed 2026-07-05)},
+  url          = {https://qontrol.co.uk/wp-content/uploads/2024/07/Q8a-User-Manual-3.2-1.pdf}
+}
+
+@misc{qontrol_q8iv,
+  title        = {{Q8iv}: 8-channel integrated-optics control module},
+  author       = {{Qontrol Ltd.}},
+  howpublished = {\url{https://qontrol.co.uk/product/q8iv/}},
+  year         = {2026},
+  note         = {Product page, accessed 2026-07-06. TODO: record list price for the cost comparison.}
+}
+
+% ------------------------------------------------- research-grade controllers
+@article{sacchi2025controller,
+  author  = {Sacchi, Emanuele and Zanetto, Francesco and Martinez, Andres Ivan and SeyedinNavadeh, SeyedMohammad and Morichetti, Francesco and Melloni, Andrea and Sampietro, Marco and Ferrari, Giorgio},
+  title   = {Integrated electronic controller for dynamic self-configuration of photonic circuits},
+  journal = {Light: Science \& Applications},
+  volume  = {14},
+  pages   = {348},
+  year    = {2025},
+  doi     = {10.1038/s41377-025-01977-w},
+  note    = {8-channel 0.35\,$\mu$m CMOS ASIC, $\sim$10\,mW/channel; custom silicon, not reproducible open hardware}
+}
+
+% --------------------------------------------------------- open-source drivers
+@misc{troughton_usmu,
+  author       = {Troughton, Joel},
+  title        = {{uSMU}: a credit-card-sized, {USB}-powered four-quadrant source-measure unit},
+  howpublished = {\url{https://github.com/joeltroughton/uSMU}},
+  year         = {2023},
+  note         = {Open-source hardware + firmware; single channel. Accessed 2026-07-06.}
+}
+
+% ------------------------------------------------------ photonics background
+% VERIFY page ranges / exact titles before submission.
+@article{bogaerts2020programmable,
+  author  = {Bogaerts, Wim and P{\'e}rez, Daniel and Capmany, Jos{\'e} and Miller, David A. B. and Poon, Joyce and Englund, Dirk and Morichetti, Francesco and Melloni, Andrea},
+  title   = {Programmable photonic circuits},
+  journal = {Nature},
+  volume  = {586},
+  pages   = {207--216},
+  year    = {2020},
+  doi     = {10.1038/s41586-020-2764-0}
+}
+
+@article{clements2016optimal,
+  author  = {Clements, William R. and Humphreys, Peter C. and Metcalf, Benjamin J. and Kolthammer, W. Steven and Walmsley, Ian A.},
+  title   = {Optimal design for universal multiport interferometers},
+  journal = {Optica},
+  volume  = {3},
+  number  = {12},
+  pages   = {1460--1465},
+  year    = {2016},
+  doi     = {10.1364/OPTICA.3.001460}
+}
+
+@article{harris2014efficient,
+  author  = {Harris, Nicholas C. and Ma, Yangjin and Mower, Jacob and Baehr-Jones, Tom and Englund, Dirk and Hochberg, Michael and Galland, Christophe},
+  title   = {Efficient, compact and low loss thermo-optic phase shifter in silicon},
+  journal = {Optics Express},
+  volume  = {22},
+  number  = {9},
+  pages   = {10487--10493},
+  year    = {2014},
+  doi     = {10.1364/OE.22.010487}
+}
+
+% VERIFY: closed-loop / thermal-crosstalk control reference.
+@article{milanizadeh2019canceling,
+  author  = {Milanizadeh, Maziyar and Aguiar, Douglas and Melloni, Andrea and Morichetti, Francesco},
+  title   = {Canceling thermal cross-talk effects in photonic integrated circuits},
+  journal = {Journal of Lightwave Technology},
+  volume  = {37},
+  number  = {4},
+  pages   = {1325--1332},
+  year    = {2019},
+  doi     = {10.1109/JLT.2019.2892512}
+}
