@@ -56,7 +56,11 @@ removes. Figures are regenerated from the raw bench CSVs by
 
 **Done:** rev-1 hardware designed, fabricated, and brought up; firmware 1.1
 with robust host protocol (auto-detection, hot-rescan, fast scanning); host GUI
-and calibration tooling; three daughterboards bench-validated (results above).
+and calibration tooling; all 8 daughterboards populated and tested (initial
+3-board/24-channel results above — production sign-off).
 
-**Next:** Keithley 2400/2100 per-channel calibration campaign (jig designed,
-parts list ready), population of all 8 boards, HardwareX submission.
+**Open issue:** a ~3 mV offset seen during the 8-board test needs root-causing
+(not yet isolated to a channel, board, or systematic cause).
+
+**Next:** track down the 3 mV offset; Keithley 2400/2100 per-channel
+calibration campaign (jig designed, parts list ready); HardwareX submission.
