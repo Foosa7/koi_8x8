@@ -9,7 +9,7 @@ fp-info-cache
 *.kicad_prl
 
 # --- Large generated Padne artifacts ---
-hardware/daughterboard/pdn*.padne
+hardware/daughterboard/**/pdn*.padne
 
 # --- Local KiCad history folders (nested Git repos) ---
 hardware/**/.history/

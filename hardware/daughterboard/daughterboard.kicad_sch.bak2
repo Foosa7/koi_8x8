@@ -5653,7 +5653,7 @@
 		)
 		(uuid "348bc2b2-027b-42f6-851b-848c0b1cb70d")
 	)
-	(text "; ============================================================================\n; padne directives - KOI 8x8 daughterboard\n; rev: A30=+12V, C25 bulk, U9 AT21CS01, R18=2.7k\n; All designators/pads verified against daughterboard.kicad_pcb\n;\n; v3 CHANGE: the optional DAC-trace block is disabled. In v2 it injected\n; +50uA at the DAC pin and drew -50uA at the XTR pin of the SAME net, giving\n; each DACx net zero net current and NO resistive path to any reference.\n; Those nets' potentials were mathematically undetermined -> \"Matrix is\n; exactly singular\" -> every voltage NaN. A properly-referenced version is\n; at the bottom, commented out.\n;\n;   padne solve daughterboard.kicad_pro pdn.padne\n;   padne paraview pdn.padne padne_out/\n;   python3 padne_plots.py padne_out/ results/\n; ============================================================================\n\n; ---- SUPPLY SOURCES (entering at the real connector fingers) ---------------\n!padne VOLTAGE v=3.3 p=3V3.1 n=C24.2\n!padne VOLTAGE v=12  p=12V0.1 n=C25.2\n\n; ---- DVDD filter path (AD7193 digital rail) -------------------------------\n!padne RESISTANCE r=0.1 a=L1.1 b=L1.2\n!padne RESISTANCE r=1.5 a=R27.2 b=R27.1\n\n; ---- IC supply currents ---------------------------------------------------\n!padne CURRENT i=4mA   f=U11.24 t=U11.22\n!padne CURRENT i=1mA   f=U11.25 t=U11.23\n!padne CURRENT i=5uA   f=U11.7  t=U11.8\n!padne CURRENT i=1mA   f=U10.2  t=U10.4\n!padne CURRENT i=3mA   f=U20.7  t=U20.6\n!padne CURRENT i=0.5mA f=U20.16 t=U20.6\n!padne CURRENT i=0.5mA f=U20.1  t=U20.6\n!padne CURRENT i=1mA   f=U8.16  t=U8.8\n\n; ---- EEPROM (parasitically powered through the 2.7k pullup) ---------------\n!padne RESISTANCE r=2700 a=R18.1 b=R18.2\n!padne CURRENT i=0.1mA f=U9.1 t=U9.3\n\n; ============================================================================\n; PER-CHANNEL BLOCKS\n;   XTR quiescent (pin5->pin9), pass current (pin5->pin6),\n;   SET-pin current (pin5->pin10) draining through the 5k to GND,\n;   external 800R load across both J1 fingers to the adjacent GND finger,\n;   sense divider as real resistances (100k top + 20k bottom).\n; Set i= to your real per-channel output current (3mA shown).\n; SET current = I_out/10 per XTR200 transconductance -> scale with i=.\n; ============================================================================\n\n; ---- CH0 : U0, R2/R6, SET R22, J1 A13/B13, gnd A14 ------------------------\n!padne CURRENT i=3mA   f=U0.5 t=U0.9\n!padne CURRENT i=3mA   f=U0.5 t=U0.6\n!padne CURRENT i=0.3mA f=U0.5 t=U0.10\n!padne RESISTANCE r=5000 a=R22.2 b=R22.1\n!padne RESISTANCE r=800 a=J1.A13,J1.B13 b=J1.A14 coupling=0.001\n!padne RESISTANCE r=100000 a=R2.2 b=R2.1\n!padne RESISTANCE r=20000  a=R6.2 b=R6.1\n\n; ---- CH1 : U1, R10/R14, SET R19, J1 A15/B15, gnd A16 ----------------------\n!padne CURRENT i=3mA   f=U1.5 t=U1.9\n!padne CURRENT i=3mA   f=U1.5 t=U1.6\n!padne CURRENT i=0.3mA f=U1.5 t=U1.10\n!padne RESISTANCE r=5000 a=R19.2 b=R19.1\n!padne RESISTANCE r=800 a=J1.A15,J1.B15 b=J1.A16 coupling=0.001\n!padne RESISTANCE r=100000 a=R10.2 b=R10.1\n!padne RESISTANCE r=20000  a=R14.2 b=R14.1\n\n; ---- CH2 : U2, R9/R13, SET R25, J1 A18/B18, gnd A19 -----------------------\n!padne CURRENT i=3mA   f=U2.5 t=U2.9\n!padne CURRENT i=3mA   f=U2.5 t=U2.6\n!padne CURRENT i=0.3mA f=U2.5 t=U2.10\n!padne RESISTANCE r=5000 a=R25.2 b=R25.1\n!padne RESISTANCE r=800 a=J1.A18,J1.B18 b=J1.A19 coupling=0.001\n!padne RESISTANCE r=100000 a=R9.2 b=R9.1\n!padne RESISTANCE r=20000  a=R13.2 b=R13.1\n\n; ---- CH3 : U3, R1/R5, SET R20, J1 A20/B20, gnd A21 ------------------------\n!padne CURRENT i=3mA   f=U3.5 t=U3.9\n!padne CURRENT i=3mA   f=U3.5 t=U3.6\n!padne CURRENT i=0.3mA f=U3.5 t=U3.10\n!padne RESISTANCE r=5000 a=R20.2 b=R20.1\n!padne RESISTANCE r=800 a=J1.A20,J1.B20 b=J1.A21 coupling=0.001\n!padne RESISTANCE r=100000 a=R1.2 b=R1.1\n!padne RESISTANCE r=20000  a=R5.2 b=R5.1\n\n; ---- CH4 : U4, R4/R8, SET R24, J1 A22/B22, gnd A23 ------------------------\n!padne CURRENT i=3mA   f=U4.5 t=U4.9\n!padne CURRENT i=3mA   f=U4.5 t=U4.6\n!padne CURRENT i=0.3mA f=U4.5 t=U4.10\n!padne RESISTANCE r=5000 a=R24.2 b=R24.1\n!padne RESISTANCE r=800 a=J1.A22,J1.B22 b=J1.A23 coupling=0.001\n!padne RESISTANCE r=100000 a=R4.2 b=R4.1\n!padne RESISTANCE r=20000  a=R8.2 b=R8.1\n\n; ---- CH5 : U5, R12/R16, SET R21, J1 A24/B24, gnd A25 ----------------------\n!padne CURRENT i=3mA   f=U5.5 t=U5.9\n!padne CURRENT i=3mA   f=U5.5 t=U5.6\n!padne CURRENT i=0.3mA f=U5.5 t=U5.10\n!padne RESISTANCE r=5000 a=R21.2 b=R21.1\n!padne RESISTANCE r=800 a=J1.A24,J1.B24 b=J1.A25 coupling=0.001\n!padne RESISTANCE r=100000 a=R12.2 b=R12.1\n!padne RESISTANCE r=20000  a=R16.2 b=R16.1\n\n; ---- CH6 : U6, R11/R15, SET R26, J1 A26/B26, gnd A27 ----------------------\n!padne CURRENT i=3mA   f=U6.5 t=U6.9\n!padne CURRENT i=3mA   f=U6.5 t=U6.6\n!padne CURRENT i=0.3mA f=U6.5 t=U6.10\n!padne RESISTANCE r=5000 a=R26.2 b=R26.1\n!padne RESISTANCE r=800 a=J1.A26,J1.B26 b=J1.A27 coupling=0.001\n!padne RESISTANCE r=100000 a=R11.2 b=R11.1\n!padne RESISTANCE r=20000  a=R15.2 b=R15.1\n\n; ---- CH7 : U7, R3/R7, SET R23, J1 A28/B28, gnd A29 ------------------------\n!padne CURRENT i=3mA   f=U7.5 t=U7.9\n!padne CURRENT i=3mA   f=U7.5 t=U7.6\n!padne CURRENT i=0.3mA f=U7.5 t=U7.10\n!padne RESISTANCE r=5000 a=R23.2 b=R23.1\n!padne RESISTANCE r=800 a=J1.A28,J1.B28 b=J1.A29 coupling=0.001\n!padne RESISTANCE r=100000 a=R3.2 b=R3.1\n!padne RESISTANCE r=20000  a=R7.2 b=R7.1\n\n; ============================================================================\n; OPTIONAL - DAC output traces.  DISABLED BY DEFAULT.\n; Only enable AFTER confirming the block above solves cleanly (no\n; \"Matrix is exactly singular\" warning). Each DACx net is given a resistive\n; path to ground (the XTR200 input impedance) so its potential is DEFINED,\n; then a current is injected from the DAC supply. Do NOT add a second\n; current source that merely removes the same current at the XTR pin -\n; that is what made v2 singular.\n; Set r= to the XTR200's real input resistance and i= accordingly.\n; Verified crossover: U20.2->U1  U20.11->U0  U20.3->U3  U20.10->U2\n;                     U20.4->U5  U20.9 ->U4  U20.5->U7  U20.8 ->U6\n; ----------------------------------------------------------------------------\n; !padne RESISTANCE r=100000 a=U20.2  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.2\n; !padne RESISTANCE r=100000 a=U20.11 b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.11\n; !padne RESISTANCE r=100000 a=U20.3  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.3\n; !padne RESISTANCE r=100000 a=U20.10 b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.10\n; !padne RESISTANCE r=100000 a=U20.4  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.4\n; !padne RESISTANCE r=100000 a=U20.9  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.9\n; !padne RESISTANCE r=100000 a=U20.5  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.5\n; !padne RESISTANCE r=100000 a=U20.8  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.8\n\n; ============================================================================\n; NOT MODELLED (deliberately)\n;   C25 / C1-C8 / all decoupling  - capacitors carry no DC current\n;   D1 + R17 (LED)                - LED is reverse-connected and R17=100k,\n;                                   so DC current is ~0 as drawn\n;   XTR_OD, SPI, CS, PRSNT, '165  - logic nets, negligible DC\n;\n; TROUBLESHOOTING\n;   \"Matrix is exactly singular\" / NaN  -> some net has current injected but\n;       no resistive path to a reference. Every CURRENT must ultimately drain\n;       through a RESISTANCE (or land on a net a VOLTAGE source defines).\n;   \"Ground node current is not zero (X A)\" -> a loop is unterminated; X tells\n;       you the size of the offending source.\n;   12V solving with ~0.0 uV spread and a 3.3 V reference offset -> the finger\n;       pads meshed as isolated islands; fall back to:\n;         !padne VOLTAGE v=12  p=12V0.1 n=C25.2\n;         !padne VOLTAGE v=3.3 p=3V3.1  n=C24.2\n; ============================================================================"
+	(text "; ============================================================================\n; padne directives - KOI 8x8 daughterboard\n; rev: A30=+12V, C25 bulk, U9 AT21CS01, R18=2.7k\n; All designators/pads verified against daughterboard.kicad_pcb\n;\n; v3 CHANGE: the optional DAC-trace block is disabled. In v2 it injected\n; +50uA at the DAC pin and drew -50uA at the XTR pin of the SAME net, giving\n; each DACx net zero net current and NO resistive path to any reference.\n; Those nets' potentials were mathematically undetermined -> \"Matrix is\n; exactly singular\" -> every voltage NaN. A properly-referenced version is\n; at the bottom, commented out.\n;\n;   padne solve daughterboard.kicad_pro pdn.padne\n;   padne paraview pdn.padne padne_out/\n;   python3 padne_plots.py padne_out/ results/\n; ============================================================================\n\n; ---- SUPPLY SOURCES (entering at the real connector fingers) ---------------\n!padne VOLTAGE v=3.3 p=J1.A2 n=J1.A3\n!padne VOLTAGE v=12  p=J1.A30 n=J1.A31\n\n; ---- DVDD filter path (AD7193 digital rail) -------------------------------\n!padne RESISTANCE r=0.1 a=L1.1 b=L1.2\n!padne RESISTANCE r=1.5 a=R27.2 b=R27.1\n\n; ---- IC supply currents ---------------------------------------------------\n!padne CURRENT i=4mA   f=U11.24 t=U11.22\n!padne CURRENT i=1mA   f=U11.25 t=U11.23\n!padne CURRENT i=5uA   f=U11.7  t=U11.8\n!padne CURRENT i=1mA   f=U10.2  t=U10.4\n!padne CURRENT i=3mA   f=U20.7  t=U20.6\n!padne CURRENT i=0.5mA f=U20.16 t=U20.6\n!padne CURRENT i=0.5mA f=U20.1  t=U20.6\n!padne CURRENT i=1mA   f=U8.16  t=U8.8\n\n; ---- EEPROM (parasitically powered through the 2.7k pullup) ---------------\n!padne RESISTANCE r=2700 a=R18.1 b=R18.2\n!padne CURRENT i=0.1mA f=U9.1 t=U9.3\n\n; ============================================================================\n; PER-CHANNEL BLOCKS\n;   XTR quiescent (pin5->pin9), pass current (pin5->pin6),\n;   SET-pin current (pin5->pin10) draining through the 5k to GND,\n;   external 800R load across both J1 fingers to the adjacent GND finger,\n;   sense divider as real resistances (100k top + 20k bottom).\n; Set i= to your real per-channel output current (3mA shown).\n; SET current = I_out/10 per XTR200 transconductance -> scale with i=.\n; ============================================================================\n\n; ---- CH0 : U0, R2/R6, SET R22, J1 A13/B13, gnd A14 ------------------------\n!padne CURRENT i=3mA   f=U0.5 t=U0.9\n!padne CURRENT i=3mA   f=U0.5 t=U0.6\n!padne CURRENT i=0.3mA f=U0.5 t=U0.10\n!padne RESISTANCE r=5000 a=R22.2 b=R22.1\n!padne RESISTANCE r=800 a=J1.A13,J1.B13 b=J1.A14 coupling=0.001\n!padne RESISTANCE r=100000 a=R2.2 b=R2.1\n!padne RESISTANCE r=20000  a=R6.2 b=R6.1\n\n; ---- CH1 : U1, R10/R14, SET R19, J1 A15/B15, gnd A16 ----------------------\n!padne CURRENT i=3mA   f=U1.5 t=U1.9\n!padne CURRENT i=3mA   f=U1.5 t=U1.6\n!padne CURRENT i=0.3mA f=U1.5 t=U1.10\n!padne RESISTANCE r=5000 a=R19.2 b=R19.1\n!padne RESISTANCE r=800 a=J1.A15,J1.B15 b=J1.A16 coupling=0.001\n!padne RESISTANCE r=100000 a=R10.2 b=R10.1\n!padne RESISTANCE r=20000  a=R14.2 b=R14.1\n\n; ---- CH2 : U2, R9/R13, SET R25, J1 A18/B18, gnd A19 -----------------------\n!padne CURRENT i=3mA   f=U2.5 t=U2.9\n!padne CURRENT i=3mA   f=U2.5 t=U2.6\n!padne CURRENT i=0.3mA f=U2.5 t=U2.10\n!padne RESISTANCE r=5000 a=R25.2 b=R25.1\n!padne RESISTANCE r=800 a=J1.A18,J1.B18 b=J1.A19 coupling=0.001\n!padne RESISTANCE r=100000 a=R9.2 b=R9.1\n!padne RESISTANCE r=20000  a=R13.2 b=R13.1\n\n; ---- CH3 : U3, R1/R5, SET R20, J1 A20/B20, gnd A21 ------------------------\n!padne CURRENT i=3mA   f=U3.5 t=U3.9\n!padne CURRENT i=3mA   f=U3.5 t=U3.6\n!padne CURRENT i=0.3mA f=U3.5 t=U3.10\n!padne RESISTANCE r=5000 a=R20.2 b=R20.1\n!padne RESISTANCE r=800 a=J1.A20,J1.B20 b=J1.A21 coupling=0.001\n!padne RESISTANCE r=100000 a=R1.2 b=R1.1\n!padne RESISTANCE r=20000  a=R5.2 b=R5.1\n\n; ---- CH4 : U4, R4/R8, SET R24, J1 A22/B22, gnd A23 ------------------------\n!padne CURRENT i=3mA   f=U4.5 t=U4.9\n!padne CURRENT i=3mA   f=U4.5 t=U4.6\n!padne CURRENT i=0.3mA f=U4.5 t=U4.10\n!padne RESISTANCE r=5000 a=R24.2 b=R24.1\n!padne RESISTANCE r=800 a=J1.A22,J1.B22 b=J1.A23 coupling=0.001\n!padne RESISTANCE r=100000 a=R4.2 b=R4.1\n!padne RESISTANCE r=20000  a=R8.2 b=R8.1\n\n; ---- CH5 : U5, R12/R16, SET R21, J1 A24/B24, gnd A25 ----------------------\n!padne CURRENT i=3mA   f=U5.5 t=U5.9\n!padne CURRENT i=3mA   f=U5.5 t=U5.6\n!padne CURRENT i=0.3mA f=U5.5 t=U5.10\n!padne RESISTANCE r=5000 a=R21.2 b=R21.1\n!padne RESISTANCE r=800 a=J1.A24,J1.B24 b=J1.A25 coupling=0.001\n!padne RESISTANCE r=100000 a=R12.2 b=R12.1\n!padne RESISTANCE r=20000  a=R16.2 b=R16.1\n\n; ---- CH6 : U6, R11/R15, SET R26, J1 A26/B26, gnd A27 ----------------------\n!padne CURRENT i=3mA   f=U6.5 t=U6.9\n!padne CURRENT i=3mA   f=U6.5 t=U6.6\n!padne CURRENT i=0.3mA f=U6.5 t=U6.10\n!padne RESISTANCE r=5000 a=R26.2 b=R26.1\n!padne RESISTANCE r=800 a=J1.A26,J1.B26 b=J1.A27 coupling=0.001\n!padne RESISTANCE r=100000 a=R11.2 b=R11.1\n!padne RESISTANCE r=20000  a=R15.2 b=R15.1\n\n; ---- CH7 : U7, R3/R7, SET R23, J1 A28/B28, gnd A29 ------------------------\n!padne CURRENT i=3mA   f=U7.5 t=U7.9\n!padne CURRENT i=3mA   f=U7.5 t=U7.6\n!padne CURRENT i=0.3mA f=U7.5 t=U7.10\n!padne RESISTANCE r=5000 a=R23.2 b=R23.1\n!padne RESISTANCE r=800 a=J1.A28,J1.B28 b=J1.A29 coupling=0.001\n!padne RESISTANCE r=100000 a=R3.2 b=R3.1\n!padne RESISTANCE r=20000  a=R7.2 b=R7.1\n\n; ============================================================================\n; OPTIONAL - DAC output traces.  DISABLED BY DEFAULT.\n; Only enable AFTER confirming the block above solves cleanly (no\n; \"Matrix is exactly singular\" warning). Each DACx net is given a resistive\n; path to ground (the XTR200 input impedance) so its potential is DEFINED,\n; then a current is injected from the DAC supply. Do NOT add a second\n; current source that merely removes the same current at the XTR pin -\n; that is what made v2 singular.\n; Set r= to the XTR200's real input resistance and i= accordingly.\n; Verified crossover: U20.2->U1  U20.11->U0  U20.3->U3  U20.10->U2\n;                     U20.4->U5  U20.9 ->U4  U20.5->U7  U20.8 ->U6\n; ----------------------------------------------------------------------------\n; !padne RESISTANCE r=100000 a=U20.2  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.2\n; !padne RESISTANCE r=100000 a=U20.11 b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.11\n; !padne RESISTANCE r=100000 a=U20.3  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.3\n; !padne RESISTANCE r=100000 a=U20.10 b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.10\n; !padne RESISTANCE r=100000 a=U20.4  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.4\n; !padne RESISTANCE r=100000 a=U20.9  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.9\n; !padne RESISTANCE r=100000 a=U20.5  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.5\n; !padne RESISTANCE r=100000 a=U20.8  b=U20.6\n; !padne CURRENT i=25uA f=U20.7 t=U20.8\n\n; ============================================================================\n; NOT MODELLED (deliberately)\n;   C25 / C1-C8 / all decoupling  - capacitors carry no DC current\n;   D1 + R17 (LED)                - LED is reverse-connected and R17=100k,\n;                                   so DC current is ~0 as drawn\n;   XTR_OD, SPI, CS, PRSNT, '165  - logic nets, negligible DC\n;\n; TROUBLESHOOTING\n;   \"Matrix is exactly singular\" / NaN  -> some net has current injected but\n;       no resistive path to a reference. Every CURRENT must ultimately drain\n;       through a RESISTANCE (or land on a net a VOLTAGE source defines).\n;   \"Ground node current is not zero (X A)\" -> a loop is unterminated; X tells\n;       you the size of the offending source.\n;   12V solving with ~0.0 uV spread and a 3.3 V reference offset -> the finger\n;       pads meshed as isolated islands; fall back to:\n;         !padne VOLTAGE v=12  p=12V0.1 n=C25.2\n;         !padne VOLTAGE v=3.3 p=3V3.1  n=C24.2\n; ============================================================================"
 		(exclude_from_sim no)
 		(at -67.818 279.908 0)
 		(effects
@@ -5965,7 +5965,7 @@
 		)
 		(uuid "6e2dd63d-2c85-46c9-9ce7-56d528052480")
 	)
-	(text_box "red - 5k\nyellow - 1.5k\ngreen - 700"
+	(text_box "\n\n\n\nred - 5k\nyellow - 1.5k\ngreen - 700"
 		(exclude_from_sim no)
 		(at 278.13 21.59 0)
 		(size 127 62.23)
@@ -15318,8 +15318,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 230.886 219.71 0)
+		(property "Value" "5k"
+			(at 232.156 219.71 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -15715,8 +15715,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 177.292 218.44 0)
+		(property "Value" "5k"
+			(at 178.816 218.44 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -16943,8 +16943,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 230.886 184.15 0)
+		(property "Value" "5k"
+			(at 232.156 184.15 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17493,8 +17493,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 177.292 148.59 0)
+		(property "Value" "5k"
+			(at 178.816 148.59 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -21196,8 +21196,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 177.292 184.15 0)
+		(property "Value" "5k"
+			(at 178.816 184.15 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -22088,8 +22088,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 230.886 148.59 0)
+		(property "Value" "5k"
+			(at 232.156 148.59 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -22169,8 +22169,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 230.632 254 0)
+		(property "Value" "5k"
+			(at 232.156 254 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -24736,8 +24736,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "4.7k"
-			(at 177.292 254 0)
+		(property "Value" "5k"
+			(at 178.816 254 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects

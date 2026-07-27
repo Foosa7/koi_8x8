@@ -76,7 +76,24 @@
           "width": 0.0
         }
       ],
-      "drc_exclusions": [],
+      "drc_exclusions": [
+        [
+          "lib_footprint_mismatch|113249948|86000000|06b2c3a2-1569-4ad9-8be7-bbea654ee97d|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "lib_footprint_mismatch|117999948|84230000|0c2824d3-6313-4ddd-adb8-869fed0fca51|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "lib_footprint_mismatch|126017448|86800000|3c669c8f-21c0-4993-bbfd-4809fc8399b6|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "lib_footprint_mismatch|147299948|84000000|2189da56-5665-4526-b961-6de54335c4c7|00000000-0000-0000-0000-000000000000",
+          ""
+        ]
+      ],
       "meta": {
         "version": 2
       },
@@ -679,7 +696,7 @@
           "show": false
         }
       ],
-      "filter_string": "fid",
+      "filter_string": "",
       "group_symbols": true,
       "include_excluded_from_bom": true,
       "name": "",
@@ -735,7 +752,7 @@
         "uuid": "95ce8a9e-96f8-40a4-a623-399524105e57"
       }
     ],
-    "used_designators": "FID1-2",
+    "used_designators": "R18,C24-25,#PWR52,#PWR83,#PWR85-87,#PWR96,U9,U12,FID1-2",
     "variants": []
   },
   "sheets": [
