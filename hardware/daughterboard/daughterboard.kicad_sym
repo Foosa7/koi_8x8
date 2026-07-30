@@ -1052,7 +1052,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH0"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1089,7 +1089,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH1"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1145,7 +1145,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH2"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1182,7 +1182,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH3"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1219,7 +1219,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH4"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1256,7 +1256,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH5"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1293,7 +1293,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH6"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1330,7 +1330,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH7"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1644,7 +1644,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH0"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1682,7 +1682,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH1"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1739,7 +1739,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH2"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1777,7 +1777,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH3"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1815,7 +1815,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH4"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1853,7 +1853,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH5"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1891,7 +1891,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH6"
 					(effects
 						(font
 							(size 1.27 1.27)
@@ -1929,7 +1929,7 @@
 				(at 0 -34.29 90)
 				(length 3.81)
 				(hide yes)
-				(name "GND"
+				(name "CH7"
 					(effects
 						(font
 							(size 1.27 1.27)
