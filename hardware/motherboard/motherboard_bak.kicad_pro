@@ -211,7 +211,6 @@
       ],
       "track_widths": [
         0.0,
-        0.2,
         0.3,
         0.4,
         0.6
@@ -696,7 +695,7 @@
         "uuid": "ed664888-552e-4450-ac78-1bccbde5a748"
       }
     ],
-    "used_designators": "TP1-4,C4,#PWR61-62,#PWR73-74,J1-8,J13,U2",
+    "used_designators": "U2",
     "variants": []
   },
   "sheets": [
