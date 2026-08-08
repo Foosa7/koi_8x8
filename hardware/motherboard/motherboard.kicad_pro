@@ -214,7 +214,9 @@
         0.2,
         0.3,
         0.4,
-        0.6
+        0.6,
+        1.0,
+        1.5
       ],
       "tuning_pattern_settings": {
         "diff_pair_defaults": {
@@ -619,7 +621,7 @@
           "group_by": false,
           "label": "Datasheet",
           "name": "Datasheet",
-          "show": true
+          "show": false
         },
         {
           "group_by": false,
@@ -638,6 +640,12 @@
           "label": "Mouser",
           "name": "Mouser",
           "show": false
+        },
+        {
+          "group_by": false,
+          "label": "LCSC",
+          "name": "LCSC",
+          "show": true
         }
       ],
       "filter_string": "",
@@ -696,7 +704,7 @@
         "uuid": "ed664888-552e-4450-ac78-1bccbde5a748"
       }
     ],
-    "used_designators": "TP1-4,C4,#PWR61-62,#PWR73-74,J1-8,J13,U2",
+    "used_designators": "R1,R6-8,TP1-4,D1-4,C4-11,#PWR36,#PWR38,#PWR50-51,#PWR53-54,#PWR56,#PWR61-69,#PWR72-74,#PWR102-105,J1-8,J12-13,Q1,F1-2,U2,U4,U6-8",
     "variants": []
   },
   "sheets": [

@@ -10,6 +10,16 @@ fp-info-cache
 
 # --- Large generated Padne artifacts ---
 hardware/daughterboard/**/pdn*.padne
+hardware/*/padne_out_*/
+hardware/*/results_*/
+
+# --- KiCad restore backups and archives (regenerable, large) ---
+hardware/**/_restore_backup_*/
+hardware/*-bak.7z
+
+# --- Generated board 3D exports (footprint .stp models stay tracked) ---
+hardware/daughterboard/daughterboard.step
+hardware/motherboard/motherboard.step
 
 # --- Local KiCad history folders (nested Git repos) ---
 hardware/**/.history/
