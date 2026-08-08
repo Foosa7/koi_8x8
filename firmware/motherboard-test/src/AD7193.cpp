@@ -391,10 +391,11 @@ void AD7193Driver::startContinuousConversion(uint8_t device, uint32_t channelMas
                                               uint16_t rate) {
     if (device >= AD7193_NUM_DEVICES) return;
 
-    // Configure channels, gain, buffer
-    confReg[device] &= ~(AD7193_CONF_CHAN_MASK | AD7193_CONF_GAIN_MASK);
+    // Configure channels and gain. BUF stays cleared — the external OPA2333
+    // followers (U13-U16) buffer the ADC inputs; enabling the internal buffer
+    // costs AGND+250 mV of input range and reintroduces the ~3 mV offset.
+    confReg[device] &= ~(AD7193_CONF_CHAN_MASK | AD7193_CONF_GAIN_MASK | AD7193_CONF_BUF);
     confReg[device] |= (channelMask & AD7193_CONF_CHAN_MASK);
-    confReg[device] |= AD7193_CONF_BUF;
     confReg[device] |= AD7193_CONF_PSEUDO;
     confReg[device] |= (gain & AD7193_CONF_GAIN_MASK);
     if (unipolar) {
