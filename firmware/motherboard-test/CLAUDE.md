@@ -64,8 +64,36 @@ command sent and, on mismatch or timeout, drains the stream until quiet and rese
 | `STREAM ON\|OFF` | periodic `# …` dump for eyeballing | `OK STREAM ON\|OFF` |
 | `RESCAN` | re-detect boards at runtime (resyncs SPI + reconfigures as needed) | `OK RESCAN active=0x.. new=0x..` |
 | `PING? b` | board liveness: ADC ID + one real conversion, non-mutating (`0` for an undetected board — RESCAN adopts it) | `OK PING <b> 1\|0` |
+| `FAULT?` | XTR200 error flags, 64-bit g-ordered masks | `OK FAULT latch=0x… now=0x… valid=0x..` |
+| `FAULTCLR` | clear the sticky latch and re-arm (setpoints stay 0) | `OK FAULTCLR` |
+| `FAULTEN ON\|OFF` | auto-zero a channel on fault (default ON) | `OK FAULTEN ON\|OFF` |
 
 Typical experiment loop: `ISETA …` → settle → `MEASA?` (two round-trips).
+
+## XTR200 fault detection (EF chain)
+
+Each daughterboard's **SN74LV165 (U8)** samples its eight XTR200 `EF` pins; the motherboard
+daisy-chains all eight into one 64-bit register (`board0 → board1 → … → board7 → Pico`) on a
+**private bit-banged 3-wire bus — CP=GP16, Q7=GP17, PL=GP18** — so reading it never disturbs
+SPI0 (ADC + '595) or SPI1 (DAC). `loop()` polls every 20 ms; a new fault latches, zeroes that
+channel's DAC, and `writeChannel()` then pins it at 0 mA until `FAULTCLR`.
+
+Three things constrain what EF can tell you (XTR200 datasheet Table 6-1):
+
+- **It is one shared flag** — output open, output saturation, SET-pin short, supply
+  undervoltage (<8 V), or die temperature >150 °C. Disambiguate against `MEAS?`: EF asserted
+  with the voltage railed near V<sub>SP</sub>/6 at the ADC pin is an open load.
+- **Open detection arms only above V<sub>IN</sub> > 350 mV**, i.e. with R<sub>SET</sub> = 4.7 kΩ
+  (R19–R26) roughly **I<sub>OUT</sub> > 0.75 mA**. Below that an open heater raises nothing —
+  cover that region with the resistance check (R = 6·V<sub>adc</sub>/I) instead.
+- **A missing board breaks the chain.** An empty slot removes its '165 and floats the next
+  board's `DS`. Boards *downstream* of the highest gap still read correctly; everything
+  upstream shifts in garbage. `efValidMask()` computes this, and `FAULT?` reports it as
+  `valid=`. With all 8 boards populated it is `0xFF`.
+
+Boards whose front ends are disabled (OD high) are skipped while polling: in high-Z the
+XTR200 cannot reach the commanded current and legitimately asserts EF, which would otherwise
+latch a fault on every channel of an idle board.
 
 The DAC80508 is write-only, so `PING?`'s ADC conversion is the strongest per-board liveness
 proxy available (same seating/power/decoder address lines as the DAC). The only true DAC
@@ -194,8 +222,9 @@ shifting bytes through the 595 between latches is harmless (outputs only change 
 ## Conventions
 
 - External 3.0 V reference on both parts; AD7193 uses REFIN2 (`AD7193_CONF_REFSEL`),
-  pseudo-differential, unipolar, buffered, gain 1, with internal zero/full-scale calibration
-  run at startup.
+  pseudo-differential, unipolar, gain 1, with internal zero/full-scale calibration run at
+  startup. The AD7193's **internal input buffer is disabled** (`CONF.BUF = 0`) — external
+  OPA2333 followers do the buffering on the daughterboard; see the gotcha below.
 - Assert only **one** decoder enable (ADC_EN / DAC_EN) at a time, and set the GP20–22 address
   *before* asserting it. Remember the inverted mapping: address `8 − k` selects device `k`.
 
@@ -222,6 +251,37 @@ shifting bytes through the 595 between latches is harmless (outputs only change 
   single marginal frame can leave `REF_PWDWN=0` → DAC stays on the internal 2.5 V reference (VREF
   pin reads 2.5 V instead of 3.0 V; outputs scale ÷1.2). Double-writing CONFIG makes external ref
   reliably take. Symptom of it not taking: VREF = 2.5 V, DAC midscale ≈ 1.25 V instead of 1.5 V.
+- **The AD7193 internal input buffer must be OFF (`CONF.BUF = 0`) — this is what fixed the
+  ~3 mV readback offset.** That offset (seen across the 8-board test, never isolated to one
+  channel or board, because it was systemic) came from running the ADC in *buffered* mode. In
+  buffered mode the AD7193's analog inputs need roughly 250 mV of headroom from each rail, but
+  the 6:1 sense divider puts a low-current channel's AIN within a few tens of mV of AGND —
+  under the internal buffer's usable common-mode range, where it contributes an offset instead
+  of tracking its input. Clearing `BUF` restores the unbuffered input range (≈ AGND−50 mV to
+  AVDD+50 mV) but then exposes the ADC's switched-capacitor input directly to the divider's
+  ~16.7 kΩ source impedance, which would trade the offset for a gain error. So the fix is
+  **both halves together**: clear `BUF` *and* buffer externally. The daughterboard now carries
+  8 unity-gain **OPA2333** followers (**U13–U16**, 4 duals) between each divider tap and the
+  ADC input — zero-drift, 10 µV max offset, input range including ground, driving the
+  switched-cap load from a near-zero source impedance. Neither half works alone: `BUF=0`
+  without the followers gives gain error, and the followers with `BUF=1` still see the
+  headroom problem. See `hardware/daughterboard/CLAUDE.md` for the analog chain and pin map.
+  - `BUF` is cleared in **both** places that build `CONF` — `writeBoardConfig()` in `main.cpp`
+    and `startContinuousConversion()` in `AD7193.cpp` (the latter masks it off explicitly, so a
+    stale cached `confReg[]` can't reintroduce it). If you ever re-enable it, both must change.
+  - ADI's own documentation of the trade-off, which is exactly this pair of constraints:
+    - [AN-608, *Input Buffers on Sigma-Delta ADCs*](https://www.analog.com/media/en/technical-documentation/application-notes/an-608.pdf)
+      — why the unbuffered switched-cap input is a dynamic load on the source.
+    - [AD719x Instrumentation Converters FAQ](https://www.analog.com/media/en/technical-documentation/frequently-asked-questions/AD719x_FAQ_Instru_Conv.pdf)
+      — buffer enabled "allows source impedances on the front end without contributing gain
+      errors"; disabled, "resistor/capacitor combinations on the input pins can cause gain
+      errors depending on the source output impedance."
+    - [EngineerZone: AD7193 AINx Current Issue](https://ez.analog.com/data_converters/precision_adcs/f/q-a/23869/ad7193-ainx-current-issue)
+      — ADI staff state the 250 mV headroom rule directly: with buffers enabled the absolute
+      AIN voltage must stay within AGND+250 mV to AVDD−250 mV.
+    - [EngineerZone: AD7193 FAQ](https://ez.analog.com/data_converters/precision_adcs/w/documents/16496/ad7193-faq)
+      and the [AD7193 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/AD7193.pdf)
+      (see the RC limits table for unbuffered operation).
 - **The AD7193 AIN1 input has a 6:1 divider** in front of it (scales the sense range into the
   0–3 V ADC window). So true sense voltage = `ADC_V × 6`, and channel current = `ADC_V × 6 / Rload`
   (e.g. ADC reads 0.426 V → 2.54 V across 820 Ω → 3.1 mA). The raw ADC reading is correct; apply

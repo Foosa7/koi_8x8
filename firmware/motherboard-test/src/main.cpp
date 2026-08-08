@@ -18,6 +18,7 @@
  * ADC bus (SPI0): GP2=SCK, GP3=MOSI, GP4=MISO   (shared with SN74LV595)
  * DAC bus (SPI1): GP10=SCK, GP11=SDI            (write-only, no MISO/SDO)
  * SN74LV595 XTR_OD front-end enables: shares SPI0, RCLK=GP7
+ * XTR200 EF error flags: private bit-banged chain, CP=GP16, Q7=GP17, PL=GP18
  *
  * ──────────────────────────────────────────────────────────────────────────
  * HOST COMMAND PROTOCOL  (commands and replies are '\n'-terminated; every
@@ -40,6 +41,16 @@
  *   RATE fs             -> OK RATE <fs>  (AD7193 filter word 1..1023)
  *   STREAM ON|OFF       -> OK STREAM  (periodic '# v0,..' dump for eyeballing)
  *   RESCAN              -> OK RESCAN active=0x.. new=0x..  (re-detect boards)
+ *   FAULT?              -> OK FAULT latch=0x.. now=0x.. valid=0x..
+ *                          64-bit masks in g-order (bit g = channel g) of the
+ *                          XTR200 EF flags: `latch` is sticky since boot or the
+ *                          last FAULTCLR, `now` is the live read. `valid` is a
+ *                          per-BOARD mask of which slots the EF chain can be
+ *                          trusted for (see efValidMask).
+ *   FAULTCLR            -> OK FAULTCLR  (clear the sticky latch and re-arm the
+ *                          channels; setpoints stay 0 — the host must re-ISET)
+ *   FAULTEN ON|OFF      -> OK FAULTEN ..  (auto-zero a channel on fault;
+ *                          default ON. OFF only reports, for bench debugging.)
  *   PING? b             -> OK PING <b> 1|0  (board liveness: ID + one real ADC
  *                          conversion, non-mutating; 0 for an undetected board
  *                          — use RESCAN to adopt it. The ADC is the only
@@ -63,6 +74,7 @@
 #include "DAC80508.h"
 #include "AD7193.h"
 #include "XTR595.h"
+#include "EFChain.h"
 
 // ── Shared 74HC138 chip-select ──────────────────────────
 #define PIN_ADDR0     20
@@ -71,6 +83,17 @@
 #define PIN_ADC_EN     5
 #define PIN_DAC_EN     6
 #define PIN_XTR_RCLK   7
+
+// ── XTR200 EF chain (SN74LV165 ×8, private 3-wire bus) ──
+// Taken from hardware/motherboard/production/netlist.ipc, where CP/Q7_8/PL land
+// on Pico header pins 21/22/24. Every other net in that file agrees with the
+// pin numbers above, so these are almost certainly right — but that netlist
+// also shows GP7 unconnected while XTR_RCLK demonstrably works there, so it
+// lags the built board somewhere. Verify these three on the bench before
+// trusting a clean FAULT? reading.
+#define PIN_EF_CP     16
+#define PIN_EF_Q7     17
+#define PIN_EF_PL     18
 
 // ── System size ─────────────────────────────────────────
 #define NUM_BOARDS     8
@@ -102,6 +125,7 @@ arduino::MbedSPI adcSpi(        4,    3,    2);   // ADC + 595 share this
 DAC80508     dac(&dacSelect, &dacSpi, NUM_BOARDS, VREF);
 AD7193Driver adc(&adcSelect, &adcSpi, NUM_BOARDS);
 XTR595       xtr(&adcSpi, PIN_XTR_RCLK);
+EFChain      efChain(PIN_EF_PL, PIN_EF_CP, PIN_EF_Q7);
 
 // ── Runtime state ───────────────────────────────────────
 bool     boardActive[NUM_BOARDS];
@@ -113,6 +137,17 @@ uint16_t adcRate  = 8;           // AD7193 filter word (FS) used for fast scans
                                  //   FS=8 ≈ 11 ms/ch; lower=faster/noisier
                                  //   (RATE 4 ≈ 5.6 ms/ch), higher=cleaner.
 uint8_t  xtrState = 0xFF;        // OD bits: 1 = disabled, 0 = enabled
+
+// ── XTR200 fault state ──────────────────────────────────
+// efNow   : live EF read, bit ch = channel ch asserting EF right now
+// efLatch : sticky since boot / last FAULTCLR. A latched channel is FORCED to
+//           0 mA by writeChannel() until cleared, so a fault cannot be undone
+//           by the host simply re-sending a setpoint.
+uint8_t  efNow[NUM_BOARDS];
+uint8_t  efLatch[NUM_BOARDS];
+bool     faultTrip = true;       // auto-zero on fault (FAULTEN)
+uint32_t faultLast = 0;
+#define  FAULT_POLL_MS  20
 
 bool     streamOn = false;
 uint32_t streamInterval = 1000;
@@ -150,7 +185,11 @@ static void writeChannel(uint8_t g) {
     uint8_t b  = g / CH_PER_BOARD;
     uint8_t ch = g % CH_PER_BOARD;             // physical channel
     if (!boardActive[b]) return;
-    dac.setDAC(b, DAC_CH_FOR_PHYS[ch], mAToCode(g, setpoint_mA[g]));
+    // A latched fault pins the channel at 0 mA regardless of the setpoint, so a
+    // host that keeps re-sending ISET cannot re-energise a broken heater. Only
+    // FAULTCLR re-arms it.
+    uint16_t code = (efLatch[b] & (1u << ch)) ? 0 : mAToCode(g, setpoint_mA[g]);
+    dac.setDAC(b, DAC_CH_FOR_PHYS[ch], code);
 }
 
 // Measure one channel: average avgCount single conversions and return the RAW
@@ -227,9 +266,13 @@ static void buildMeasureLine(char* out, size_t cap, uint8_t bmask) {
 // that may be absent. The internal clock select is mandatory: with the default
 // (external-crystal) clock bits and no crystal, RDY never asserts.
 static void writeBoardConfig(uint8_t b) {
-    // Pseudo-differential, REFIN2, unipolar, buffered, gain 1, channel AIN1.
+    // Pseudo-differential, REFIN2, unipolar, gain 1, channel AIN1.
+    // BUF is deliberately NOT set: the internal buffer needs AGND+250 mV of
+    // headroom, and behind the 6:1 sense divider a low-current channel sits
+    // below that — which is what produced the ~3 mV offset. External OPA2333
+    // followers (U13-U16) buffer instead. See CLAUDE.md.
     adc.confReg[b] = AD7193_CONF_PSEUDO | AD7193_CONF_REFSEL | AD7193_CONF_REFDET |
-                     AD7193_CONF_UNIPOLAR | AD7193_CONF_BUF | AD7193_CONF_GAIN_1 |
+                     AD7193_CONF_UNIPOLAR | AD7193_CONF_GAIN_1 |
                      AD7193_CONF_CHAN(0);
     adc.writeRegister(b, AD7193_REG_CONF, adc.confReg[b]);
 
@@ -282,6 +325,58 @@ static bool detectBoard(uint8_t b) {
 static void setEnableMask(uint8_t enMask) {
     xtrState = (uint8_t)(~enMask);   // enabled -> OD low (0), disabled -> OD high (1)
     xtr.setOutputs(xtrState);
+}
+
+// ── XTR200 fault polling ────────────────────────────────
+// Which board slots the EF chain can be trusted for. The '165s are daisy-
+// chained board0 -> board1 -> ... -> board7 -> Pico, and an unpopulated slot
+// removes that board's '165 and breaks the chain. Boards DOWNSTREAM of the
+// highest gap (higher index, nearer the Pico) still clock out their own bits
+// correctly; everything upstream of it shifts in garbage from a floating DS.
+static uint8_t efValidMask() {
+    int gap = -1;
+    for (int b = 0; b < NUM_BOARDS; b++) if (!boardActive[b]) gap = b;
+    uint8_t m = 0;
+    for (int b = gap + 1; b < NUM_BOARDS; b++) m |= (uint8_t)(1u << b);
+    return m;
+}
+
+// Read the chain, latch new faults, and zero the offending channels.
+//
+// Boards whose front ends are disabled (OD high) are skipped: with the output
+// in high-Z the XTR200 cannot reach the commanded current and legitimately
+// raises EF, which would otherwise latch a fault on every channel of an idle
+// board. An ENABLED board sitting at 0 mA reads clean, because open-circuit
+// detection needs VIN > 350 mV to arm in the first place.
+static void pollFaults() {
+    uint8_t raw[NUM_BOARDS];
+    efChain.read(raw, NUM_BOARDS);
+
+    uint8_t valid = efValidMask();
+    for (uint8_t b = 0; b < NUM_BOARDS; b++) {
+        bool enabled = !(xtrState & (1u << b));
+        if (!(valid & (1u << b)) || !enabled) { efNow[b] = 0; continue; }
+
+        efNow[b] = raw[b];
+        uint8_t newly = (uint8_t)(raw[b] & ~efLatch[b]);
+        efLatch[b] |= raw[b];
+        if (!faultTrip || !newly) continue;
+
+        for (uint8_t ch = 0; ch < CH_PER_BOARD; ch++) {
+            if (!(newly & (1u << ch))) continue;
+            uint16_t g = b * CH_PER_BOARD + ch;
+            setpoint_mA[g] = 0.0f;
+            writeChannel((uint8_t)g);     // efLatch is already set -> forces 0
+        }
+    }
+}
+
+// Pack a per-board bitmap into one 64-bit g-ordered mask (bit g = channel g).
+static uint64_t efPack(const uint8_t* per) {
+    uint64_t m = 0;
+    for (uint8_t b = 0; b < NUM_BOARDS; b++)
+        m |= (uint64_t)per[b] << (b * CH_PER_BOARD);
+    return m;
 }
 
 static void reply(const char* s)    { Serial.println(s); }
@@ -417,6 +512,33 @@ static void processLine(char* line) {
                  activeMask, newlyFound);
         reply(buf);
 
+    } else if (strcasecmp(cmd, "FAULT?") == 0) {
+        pollFaults();                       // answer from a fresh read
+        // Printed as two 32-bit halves: newlib-nano's printf drops %ll support,
+        // so a single %016llX would emit garbage here.
+        uint64_t l = efPack(efLatch), n = efPack(efNow);
+        char buf[80];
+        snprintf(buf, sizeof(buf),
+                 "OK FAULT latch=0x%08lX%08lX now=0x%08lX%08lX valid=0x%02X",
+                 (unsigned long)(l >> 32), (unsigned long)(l & 0xFFFFFFFFUL),
+                 (unsigned long)(n >> 32), (unsigned long)(n & 0xFFFFFFFFUL),
+                 efValidMask());
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "FAULTCLR") == 0) {
+        // Re-arm every channel. Setpoints were zeroed when the fault tripped
+        // and are deliberately NOT restored — the host must re-ISET, so nothing
+        // comes back on current by surprise.
+        for (uint8_t b = 0; b < NUM_BOARDS; b++) { efLatch[b] = 0; efNow[b] = 0; }
+        for (uint16_t g = 0; g < TOTAL_CH; g++) writeChannel((uint8_t)g);
+        reply("OK FAULTCLR");
+
+    } else if (strcasecmp(cmd, "FAULTEN") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "ON")  == 0) { faultTrip = true;  reply("OK FAULTEN ON"); }
+        else if (a && strcasecmp(a, "OFF") == 0) { faultTrip = false; reply("OK FAULTEN OFF"); }
+        else replyErr("usage: FAULTEN ON|OFF");
+
     } else if (strcasecmp(cmd, "PING?") == 0) {
         // Board liveness check, non-mutating: re-verify an active board with
         // the ADC (ID nibble + one real conversion — the only readback a board
@@ -447,6 +569,7 @@ void setup() {
         calSlope[g]    = CAL_SLOPE_DEFAULT;
         calOffset[g]   = CAL_OFFSET_DEFAULT;
     }
+    for (uint8_t b = 0; b < NUM_BOARDS; b++) { efNow[b] = 0; efLatch[b] = 0; }
 
     Serial.println();
     Serial.println("# KOI 8x8 current driver — host command interface");
@@ -472,6 +595,7 @@ void setup() {
 
     // Front-ends start disabled; load 0 mA everywhere before enabling.
     xtr.begin();                                  // OD all HIGH = disabled
+    efChain.begin();
     for (uint16_t g = 0; g < TOTAL_CH; g++) writeChannel(g);
 
     // Enable populated boards' front-ends (still 0 mA, so safe).
@@ -479,6 +603,21 @@ void setup() {
     for (uint8_t b = 0; b < NUM_BOARDS; b++)
         if (boardActive[b]) enMask |= (uint8_t)(1 << b);
     setEnableMask(enMask);
+
+    // First EF read, after the front ends settle. At 0 mA on an enabled board
+    // this should be all-clear; anything set here is a real standing fault (or
+    // a miswired chain), so report it rather than silently latching.
+    delay(10);
+    pollFaults();
+    uint64_t f = efPack(efLatch);
+    if (f) {
+        char fb[48];
+        snprintf(fb, sizeof(fb), "# EF FAULT at boot: 0x%08lX%08lX",
+                 (unsigned long)(f >> 32), (unsigned long)(f & 0xFFFFFFFFUL));
+        Serial.println(fb);
+    }
+    Serial.print("# EF chain valid boards: 0x");
+    Serial.println(efValidMask(), HEX);
 
     Serial.println("# READY");   // '#' so a host connecting mid-boot skips it
 }
@@ -499,6 +638,14 @@ void loop() {
             lineLen = 0;
             replyErr("line too long");
         }
+    }
+
+    // Background fault sweep. Cheap (~0.5 ms of bit-banging on a private bus,
+    // so it disturbs neither SPI bank) and fast enough that a channel is cut
+    // within ~20 ms of the XTR200 raising EF.
+    if (millis() - faultLast >= FAULT_POLL_MS) {
+        faultLast = millis();
+        pollFaults();
     }
 
     // Optional eyeball stream (debug only; prefixed '#' so the host can ignore).

@@ -561,7 +561,7 @@
       "plot": "",
       "pos_files": "",
       "specctra_dsn": "",
-      "step": "",
+      "step": "daughterboard.step",
       "svg": "",
       "vrml": ""
     },
@@ -741,7 +741,7 @@
         "uuid": "95ce8a9e-96f8-40a4-a623-399524105e57"
       }
     ],
-    "used_designators": "R18,C24-25,#PWR52,#PWR83,#PWR85-88,#PWR96,U9,U12,FID1-2",
+    "used_designators": "J2,R18,R28-35,C24-33,#PWR9-10,#PWR52,#PWR78,#PWR83,#PWR85-91,#PWR93,#PWR96-101,#PWR103,#PWR108,#PWR114-116,U9,U12-16,FID1-2",
     "variants": []
   },
   "sheets": [

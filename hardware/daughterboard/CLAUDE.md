@@ -35,6 +35,60 @@ revision; the same file kinds exist under `version 1/` for the old one.
 | `*.kicad_mod`, `fp-lib-table`, `sym-lib-table` | Local footprint/symbol libraries used by the project (`Custom_PCIe_x4`/`x8`, `M.2-B-KEY`, `foosa` footprints). |
 | `*.bak`, `*.bak2`, `~*.lck` | KiCad autosave/lock files — ignore; `~*.lck` means KiCad may have the project open. |
 
+## Sense-input buffer stage (U13–U16, added 2026-08)
+
+Between each 6:1 sense divider and the AD7193 input sits a **unity-gain OPA2333 follower** —
+four dual packages, **U13–U16**, eight followers for eight channels. Per channel:
+
+```
+heater -> CHx -> 100k -> CHx_B -> OPA2333 follower -> 1k -> CHx_V -> AD7193 AIN
+                           |                                  |
+                          20k                               100nF
+                           |                                  |
+                          GND                                GND
+```
+
+| pkg | ch A / ch B | A in/out | B in/out | series R | ADC pins |
+| --- | --- | --- | --- | --- | --- |
+| U13 | CH0 / CH1 | 3 / 1 | 5 / 7 | R28, R29 | U11.11, U11.12 |
+| U14 | CH2 / CH3 | 3 / 1 | 5 / 7 | R30, R31 | U11.13, U11.14 |
+| U15 | CH4 / CH5 | 3 / 1 | 5 / 7 | R32, R33 | U11.15, U11.16 |
+| U16 | CH6 / CH7 | 3 / 1 | 5 / 7 | R34, R35 | U11.17, U11.18 |
+
+Supply pin 8 = +3.3 V, pin 4 = V− = GND. **Use pin 4, not pin 9** — pin 9 is the DRB thermal
+pad. `R28`–`R35` (1 k) + `C26`–`C33` (100 nF) form the anti-alias RC into each ADC input.
+
+**Why they exist.** The board previously drove the AD7193 inputs straight from the divider
+taps with the ADC's *internal* buffer enabled, which produced a systematic **~3 mV readback
+offset** — the open issue from the 8-board test. In buffered mode the AD7193 inputs want
+~250 mV of headroom from either rail, and a low-current channel's divider tap sits within
+tens of mV of AGND, below that range. Disabling the internal buffer (`CONF.BUF = 0`) fixes
+the range problem but leaves the ADC's switched-capacitor input loading the divider's
+~16.7 kΩ source impedance, converting the offset into a gain error. The external followers
+resolve both: OPA2333 is zero-drift with 10 µV max offset and an input range including
+ground, and it presents a near-zero source impedance to the switched-cap input.
+
+This is the textbook trade-off for a ΣΔ front end, and ADI document both horns of it: the
+internal buffer "allows source impedances on the front end without contributing gain errors"
+but costs 250 mV of range at each rail, while unbuffered operation is rail-to-rail but presents
+the sampling capacitor as a dynamic load, so "resistor/capacitor combinations on the input pins
+can cause gain errors depending on the source output impedance." With a 16.7 kΩ source we need
+the range *and* a low driving impedance, which is precisely what an external follower buys.
+
+- [AN-608, *Input Buffers on Sigma-Delta ADCs*](https://www.analog.com/media/en/technical-documentation/application-notes/an-608.pdf)
+- [AD719x Instrumentation Converters FAQ](https://www.analog.com/media/en/technical-documentation/frequently-asked-questions/AD719x_FAQ_Instru_Conv.pdf)
+- [EngineerZone: AD7193 AINx Current Issue](https://ez.analog.com/data_converters/precision_adcs/f/q-a/23869/ad7193-ainx-current-issue) — the 250 mV headroom rule, from ADI staff
+- [EngineerZone: AD7193 FAQ](https://ez.analog.com/data_converters/precision_adcs/w/documents/16496/ad7193-faq)
+- [AD7193 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/AD7193.pdf) — RC limits table for unbuffered operation
+
+**This is a hardware+firmware pair.** Boards with U13–U16 fitted *must* run with the AD7193's
+`CONF.BUF` cleared; boards without them must not. See the corresponding gotcha in
+`firmware/motherboard-test/CLAUDE.md`.
+
+These parts post-date `netlist_v2.net` — regenerate a netlist rather than trusting that file.
+Their effect on the PDN model is covered in the padne directives below (quiescent current is
+modelled at 34 µA/package; `R28`–`R35` deliberately are not).
+
 ## PDN (padne) power-delivery-network simulation
 
 The board's copper planes are simulated for IR drop / current density with an external

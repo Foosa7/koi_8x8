@@ -59,8 +59,12 @@ with robust host protocol (auto-detection, hot-rescan, fast scanning); host GUI
 and calibration tooling; all 8 daughterboards populated and tested (initial
 3-board/24-channel results above — production sign-off).
 
-**Open issue:** a ~3 mV offset seen during the 8-board test needs root-causing
-(not yet isolated to a channel, board, or systematic cause).
+**Resolved:** the ~3 mV offset seen during the 8-board test was the AD7193's
+*internal* input buffer. With the 6:1 divider, a low-current channel's ADC input
+sits below the buffered mode's usable common-mode range, so the buffer added a
+systematic offset rather than tracking. Fixed by disabling it (`CONF.BUF = 0`)
+and adding 8 external unity-gain **OPA2333** followers (U13–U16) between the
+divider taps and the ADC inputs.
 
-**Next:** track down the 3 mV offset; Keithley 2400/2100 per-channel
-calibration campaign (jig designed, parts list ready); HardwareX submission.
+**Next:** Keithley 2400/2100 per-channel calibration campaign (jig designed,
+parts list ready); HardwareX submission.
