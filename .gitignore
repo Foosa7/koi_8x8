@@ -47,6 +47,11 @@ venv/
 
 # --- Local tool settings ---
 .claude/settings.local.json
+.claude/worktrees/
+
+# --- Render intermediates (pcb2blender .pcb3d, whole-project backup zips) ---
+*.pcb3d
+hardware/*.zip
 
 # --- OS noise ---
 .DS_Store
