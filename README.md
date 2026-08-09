@@ -14,6 +14,15 @@ and power per channel. A Raspberry Pi Pico (RP2040) on the motherboard runs a
 line-based ASCII command server over USB — one `ISETA` sets all 64 currents,
 one `MEASA?` reads all 64 voltages.
 
+## The boards
+
+| [Motherboard](hardware/motherboard/) — RP2040 controller, 8 slots | [Daughterboard](hardware/daughterboard/) — 8 analog channels, ×8 |
+| --- | --- |
+| [![Motherboard](hardware/motherboard/motherboard_top.png)](hardware/motherboard/) | [![Daughterboard](hardware/daughterboard/daughterboard_top.png)](hardware/daughterboard/) |
+
+Renders are regenerated from the KiCad boards with `kicad-cli pcb render`; each
+board's own README has top, bottom, and transparent-background views.
+
 ## Key numbers
 
 | Metric | Value |
