@@ -46,8 +46,9 @@ removes. Figures are regenerated from the raw bench CSVs by
 | Path | Contents |
 | --- | --- |
 | `report/figures/` | Architecture diagram + measurement figures (and the scripts that generate them) |
-| `hardware/motherboard/` | KiCad project, schematic PDF (`Schematics/`), 3D render (`motherboard.png`), fab outputs (`production/`: gerbers, BOM, positions) |
-| `hardware/daughterboard/` | Same set for the analog board, incl. top/bottom renders and an interactive HTML BOM (`bom/ibom.html`) |
+| `hardware/motherboard/` | KiCad project, schematic PDF (`Schematics/`), power-tree spec (`POWER.md`), top/bottom/transparent renders, fab outputs (`production/`: gerbers, BOM, positions) |
+| `hardware/daughterboard/` | Same set for the analog board, plus an interactive HTML BOM (`bom/ibom.html`) |
+| `hardware/render/` | Headless KiCad → pcb2blender → Cycles pipeline for photorealistic board renders |
 | `master_bom.csv` | Consolidated system BOM with unit prices and cost total |
 | `firmware/motherboard-test/` | RP2040 firmware (PlatformIO, `pio run -t upload`) and Python host tools — `tools/koi_gui.py` is a live 8×8 monitor GUI; `tools/*.csv` are the raw bench datasets |
 | `paper/main.pdf` | Draft HardwareX manuscript (validation section pending the calibration campaign) |

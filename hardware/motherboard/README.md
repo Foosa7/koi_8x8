@@ -6,7 +6,16 @@ addressing each board's DAC/ADC over a shared SPI bus. Formerly codenamed
 `MOBO`. The PC talks to the Pico's firmware over USB serial — see
 [`firmware/motherboard-test/`](../../firmware/motherboard-test/).
 
+| Top | Bottom |
+| --- | --- |
+| ![Motherboard top](motherboard_top.png) | ![Motherboard bottom](motherboard_bottom.png) |
+
 ![Motherboard 3D render](motherboard.png)
+
+Same top view with an alpha background, for dropping onto slides or into the
+paper's figures:
+
+![Motherboard top, transparent background](motherboard_top_transparent.png)
 
 ## What's on it
 
@@ -15,12 +24,30 @@ addressing each board's DAC/ADC over a shared SPI bus. Formerly codenamed
 | A1 | Raspberry Pi Pico (RP2040) | Runs the firmware; USB-serial host link |
 | U1, U5 | SN74LV138 (74HC138) | 3-to-8 decoders — ADC/DAC chip-select across the 8 slots |
 | U3 | SN74LV595 | Shift register — XTR200 front-end enables |
+| U2 | TMUX1208PW | 8:1 analog mux |
 | J1–J8 | Samtec PCIE-064-02-F-D-TH | 8 daughterboard slots (PCIe-x4 sockets) |
 | J9–J11 | Molex 54132-5033 | 50-pin FFC connectors — channel outputs |
-| J12 | Barrel jack + switch pin | 12 V DC power in |
-| PS1 | XP Power DSM2-12-S3-S | Isolated 12 V DC-DC converter |
 
-Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv).
+### Power tree
+
+The barrel jack is the only power source; the Pico is a peripheral that cannot
+run without it, enforced in hardware by the `3V3_EN` interlock (R7/R8) rather
+than in firmware. Full design rationale: [`POWER.md`](POWER.md).
+
+| Ref | Part | Function |
+| --- | --- | --- |
+| J12 | Barrel jack + switch pin | DC power in, 9–26 V |
+| F1 | 1812L150/24MR polyfuse | Input overcurrent protection |
+| D2 | SMBJ13A | Input TVS clamp |
+| Q1 | AO3407A | P-FET reverse-polarity protection |
+| U6 | K7805-500R3 | 5 V switching regulator |
+| U4 | LP5912-3.3DRV | 3.3 V LDO — logic rail and daughterboard `+3V3` |
+| D1 | SS34 | Feeds the Pico's VSYS from the board's 5 V rail |
+| R7, R8 | 10 kΩ / 4.7 kΩ | `3V3_EN` interlock divider |
+
+Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv)
+— note that file still predates the power rework and lists the removed `PS1`
+isolated DC-DC.
 
 ## Files
 
@@ -29,4 +56,9 @@ Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv).
 | `motherboard.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | The KiCad project |
 | `Schematics/motherboard.pdf` | Exported schematic |
 | `production/` | Fab outputs — gerbers, BOM, positions, netlist |
-| `PCIE-064-02-F-D-TH.stp`, `Pico.wrl` | 3D models used for the render above |
+| `POWER.md` | Power-tree design spec — input protection chain and the `3V3_EN` interlock |
+| `motherboard*.png` | Board views above, regenerated with `kicad-cli pcb render` |
+| `PCIE-064-02-F-D-TH.stp`, `Pico.wrl` | 3D models used for the renders above |
+
+Photorealistic Cycles renders (`motherboard_render*.png`) are produced by the
+pipeline in [`../render/`](../render/) — not generated yet.

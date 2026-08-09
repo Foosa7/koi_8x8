@@ -11,6 +11,11 @@ readback. Formerly codenamed `OuttaQontrol`/`OuttaControl`.
 
 ![Daughterboard 3D render](daughterboard.png)
 
+Same top view with an alpha background, for dropping onto slides or into the
+paper's figures:
+
+![Daughterboard top, transparent background](daughterboard_top_transparent.png)
+
 ## What's on it
 
 | Ref | Part | Function |
@@ -35,8 +40,12 @@ Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv).
 | `Schematics/daughterboard.pdf` | Exported schematic |
 | `bom/ibom.html` | Interactive HTML BOM (open in a browser) |
 | `production/` | Fab outputs — gerbers, BOM, positions, netlist |
+| `daughterboard*.png` | Board views above, regenerated with `kicad-cli pcb render` |
 | `version 1/` | The prior board revision (pre-EEPROM), kept for reference, incl. its own PDN sim results |
 | `padne_out_v3/`, `results_v3/` | Power-delivery-network (PDN) simulation outputs for this revision — current-density and IR-drop maps |
+
+Photorealistic Cycles renders (`daughterboard_render*.png`) are produced by the
+pipeline in [`../render/`](../render/) — not generated yet.
 
 See **[`CLAUDE.md`](CLAUDE.md)** for the full development-facing breakdown of
 these files, the netlist/revision history, and the padne PDN simulation
