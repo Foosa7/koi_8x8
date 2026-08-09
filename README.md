@@ -33,7 +33,7 @@ board's own README has top, bottom, and transparent-background views.
 | Linearity (measured, 23 ch) | worst-case ±0.32 µA deviation from linear over 0.25–6 mA (≈0.006 % of span) |
 | Offset (pre-calibration) | ≈24 µA systematic, uniform across channels; single-point cal brings it to the ±4 µA XTR200 device floor (Keithley campaign planned) |
 | Full 64-channel scan | ≈11 ms/channel at the default filter rate (~0.7 s for all 64; filter rate adjustable live) |
-| Parts cost | **$723 per system ≈ $11.30/channel** ([master_bom.csv](master_bom.csv)) — commercial equivalents (e.g. Qontrol) ≈ $125/channel |
+| Parts cost | **$709 per system ≈ $11.08/channel** ([master_bom.csv](master_bom.csv)) — commercial equivalents (e.g. Qontrol) ≈ $125/channel |
 
 ## Measured results (3 boards / 24 channels, 2026-07-03)
 

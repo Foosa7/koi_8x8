@@ -7,25 +7,37 @@ Section,Designators (per board),Description,Value / Part,Package,Qty per board,Q
 "Daughterboard (x8)","R19-R26",Per-channel precision resistor (0.1% thin film),4.7k (RS PRO RSTNF03BTC4701),0603,8,64,0.067,4.28,RS part (0.646 kr); schematic value now correctly reads 4.7k
 "Daughterboard (x8)","R1-R4, R9-R12, R17",Sense divider top (6:1) + jellybean,100k,0603,9,72,TBD,,"2026-07-27 revision: footprint changed 0402->0603, merging the priced RS 0402 divider group with the jellybean R17; old RS 243-0436 part no longer matches footprint, needs requote"
 "Daughterboard (x8)","R5-R8, R13-R16",Sense divider bottom (6:1) 0.1% thin film,20k,0603,8,64,TBD,,"2026-07-27 revision: footprint changed 0402->0603; old RS TRSTNF02BTCY2002 part no longer matches footprint, needs requote"
-"Daughterboard (x8)",R18,1-Wire bus pull-up (new, pairs with U9),2.7k,0603,1,8,TBD,,"New 2026-07-27: added alongside U9 AT21CS01, likely pull-up for its 1-Wire DATA line - confirm purpose/part"
+"Daughterboard (x8)",R18,"1-Wire bus pull-up (new, pairs with U9)",2.7k,0603,1,8,TBD,,"New 2026-07-27: added alongside U9 AT21CS01, likely pull-up for its 1-Wire DATA line - confirm purpose/part"
 "Daughterboard (x8)",R27,Resistor,1.5,0603,1,8,TBD,,Jellybean passive
 "Daughterboard (x8)","C1-C8, C10, C12, C14-C15, C17-C22, C24",Decoupling capacitor MLCC 50V,100nF (Wurth 885012206095R),0603,19,152,0.045,6.84,RS 257-1100 (0.431 kr); C24 added 2026-07-27
 "Daughterboard (x8)","C11, C13, C16, C23",Capacitor MLCC 50V 10%,1uF (RS PRO RSMC03KTB500105),0603,4,32,0.047,1.51,RS 271-0969 (0.457 kr)
 "Daughterboard (x8)","C9, C25",Bulk capacitor,10uF,0603,2,16,TBD,,"See capacitor allowance note; C25 added 2026-07-27"
-"Daughterboard (x8)",D1,Indicator LED,LED,0603,1,8,TBD,,2026-07-27 revision: D2/D3 removed, only D1 remains
+"Daughterboard (x8)",D1,Indicator LED,LED,0603,1,8,TBD,,"2026-07-27 revision: D2/D3 removed, only D1 remains"
 "Daughterboard (x8)",U9,1-Wire board-ID EEPROM (new),AT21CS01,SOT-23,1,8,TBD,,"New 2026-07-27; likely board/channel identification - confirm part choice and BOM description"
 "Daughterboard (x8)",L1,Ferrite bead 1.5 A,FerriteBead,0603,1,8,TBD,,
 "Daughterboard (x8)",J1,Card-edge connector (PCIe x4 pattern),Custom_PCIe_x4,card edge,1,8,0.00,0.00,Edge fingers on the PCB itself - no component cost
 "Daughterboard (x8)","19x test points",Test point pads,TestPoint,pad,19,152,0.00,0.00,Bare pads - no component cost
 Motherboard (x1),A1,Controller,Raspberry Pi Pico (RP2040),SMD module,1,1,7.00,7.00,
-Motherboard (x1),"U1, U5",3-to-8 decoder (ADC / DAC chip select),SN74LV138 (74HC138),SSOP-16,2,2,0.49,0.98,
+Motherboard (x1),"U1, U5",3-to-8 decoder (ADC / DAC chip select),SN74HC138PWR,TSSOP-16,2,2,0.49,0.98,"2026-08 rework: was SN74LV138 in SSOP-16; price carried over from that line. LCSC C157527"
+Motherboard (x1),U2,8:1 analog multiplexer,TMUX1208PW,TSSOP-16,1,1,0.70,0.70,"New 2026-08. LCSC C494728. ESTIMATE - unquoted; TI/DigiKey class $0.60-0.80"
 Motherboard (x1),U3,Shift register (XTR front-end enables),SN74LV595,TSSOP-16,1,1,1.00,1.00,
-Motherboard (x1),"J1-J8",PCIe x4 socket (daughterboard slots),Samtec PCIE-064-02-F-D-TH,through-hole,8,8,2.29,18.32,"DigiKey SAM9742-ND; $2.29 @ qty 1-49 (breaks: $1.864 @ 50, $1.582 @ 100)"
-Motherboard (x1),"J9-J11",50-pin FFC connector (channel outputs),Molex 54132-5033,0.5 mm horizontal,3,3,3.00,9.00,"todo.txt flags ambiguity: $3 each (=$9) or $3 total - confirm"
-Motherboard (x1),J12,DC barrel jack with switch pin,Barrel_Jack,through-hole,1,1,1.00,1.00,
-Motherboard (x1),PS1,Isolated DC-DC converter 12 V,XP Power DSM2-12-S3-S,THT,1,1,10.37,10.37,
-Motherboard (x1),"C1-C3",Decoupling capacitor MLCC 50V,100nF (Wurth 885012206095R),0603,3,3,0.045,0.13,Same RS part as daughterboard decoupling
+Motherboard (x1),"J1-J8",PCIe x4 socket (daughterboard slots),Samtec PCIE-064-02-F-D-TH,through-hole,8,8,2.29,18.32,"DigiKey SAM9742-ND; $2.29 @ qty 1-49 (breaks: $1.864 @ 50, $1.582 @ 100). LCSC C4597619"
+Motherboard (x1),"J9-J11",50-pin FFC connector (channel outputs),Molex 54132-5033,0.5 mm horizontal,3,3,3.00,9.00,"todo.txt flags ambiguity: $3 each (=$9) or $3 total - confirm. Largest single uncertainty on this board (+/-$6)"
+Motherboard (x1),J12,DC barrel jack with switch pin,Barrel_Jack,through-hole,1,1,1.00,1.00,"Sole power source; input range now 9-26 V (was 12 V) - see hardware/motherboard/POWER.md. LCSC C84007"
+Motherboard (x1),F1,Input overcurrent protection (PPTC),Littelfuse 1812L150/24MR,1812,1,1,0.047,0.05,New 2026-08 power rework. LCSC C142805 ($0.0474)
+Motherboard (x1),D2,Input TVS clamp,SMBJ13A,SMB,1,1,0.06,0.06,New 2026-08 power rework. LCSC C133675. ESTIMATE - unquoted
+Motherboard (x1),Q1,Reverse-polarity protection P-FET,AO3407A,SOT-23,1,1,0.04,0.04,New 2026-08 power rework. LCSC C15155. ESTIMATE - unquoted
+Motherboard (x1),U6,5 V switching regulator,K7805-500R3,THT SIP-3,1,1,0.4970,0.50,"New 2026-08 power rework; replaces PS1. LCSC C19188491 (EVISUN, $0.4970); genuine MORNSUN C86735 costs more"
+Motherboard (x1),U4,3.3 V LDO (logic rail + daughterboard +3V3),LP5912-3.3DRV,WSON-6 2x2mm,1,1,0.34,0.34,New 2026-08 power rework. LCSC C524780 ($0.3409)
+Motherboard (x1),D1,Schottky feeding Pico VSYS from +5V,SS34,SMA,1,1,0.02,0.02,New 2026-08 power rework. LCSC C8678
+Motherboard (x1),"R7, R8",3V3_EN interlock divider (10k / 4.7k),10k + 4.7k,0805,2,2,0.01,0.02,"New 2026-08: makes the Pico a subsystem of the board rather than USB-startable - see POWER.md. LCSC C84376 / C60816"
+Motherboard (x1),"R1, R6",Pull-up,100k,0805,2,2,0.01,0.02,LCSC C96346. ESTIMATE - jellybean passive
+Motherboard (x1),"C1-C4",Decoupling capacitor MLCC 50V,100nF (Wurth 885012206095R),0603,4,4,0.045,0.18,Same RS part as daughterboard decoupling; C4 added 2026-08. LCSC C14663
+Motherboard (x1),C5,Switcher input bulk,10uF,1210,1,1,0.05,0.05,New 2026-08 power rework. LCSC C77102. ESTIMATE - unquoted
+Motherboard (x1),C6,Switcher output bulk,22uF,0805,1,1,0.05,0.05,New 2026-08 power rework. LCSC C45783. ESTIMATE - unquoted
+Motherboard (x1),C7,Input bulk electrolytic,220uF,CP_Elec 8x10,1,1,0.15,0.15,New 2026-08 power rework. LCSC C125981. ESTIMATE - unquoted
+Motherboard (x1),"C8, C9",LDO in/out capacitor,10uF,0805,2,2,0.03,0.06,New 2026-08 power rework. LCSC C84416. ESTIMATE - unquoted
 PCB fabrication,,Daughterboard PCB (analog),daughterboard,4-layer,1,8,30.00,240.00,
 PCB fabrication,,Motherboard PCB,motherboard,,1,1,3.00,3.00,
 Assembly,,PCB assembly,,,,,TBD,,Not yet quoted (todo.txt: TBA)
-TOTAL,,,,,,,,717.34,"Sum of priced lines (populated qty). RS passive prices converted at 1 SEK = 0.1035 USD (Jul 2026), assumed ex-VAT. TBD items outstanding: assembly, 10uF caps, 100k/20k 0603 dividers (72+64 units, needs requote after 0402->0603 footprint change), 1.5R, LEDs, ferrite, R18 pull-up, U9 EEPROM"
+TOTAL,,,,,,,,709.08,"Sum of priced lines (populated qty) = $11.08/channel. RS passive prices converted at 1 SEK = 0.1035 USD (Jul 2026), assumed ex-VAT. 2026-08 motherboard power rework: PS1 (XP Power DSM2-12-S3-S, $10.37) deleted, protection chain + K7805 + LP5912 added for $2.06 (+$0.05 for the added C4), so the board fell $47.80 -> $39.54 and the system $717.34 -> $709.08. Motherboard LCSC codes are taken from the schematic's own LCSC symbol field. Motherboard lines marked ESTIMATE total $1.13 and are unquoted (U2 mux, TVS, P-FET, bulk caps, 0805 pull-ups). TBD items outstanding: assembly, 10uF caps, 100k/20k 0603 dividers (72+64 units, needs requote after 0402->0603 footprint change), 1.5R, LEDs, ferrite, R18 pull-up, U9 EEPROM"
