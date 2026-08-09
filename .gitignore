@@ -16,6 +16,7 @@ hardware/*/results_*/
 # --- KiCad restore backups and archives (regenerable, large) ---
 hardware/**/_restore_backup_*/
 hardware/*-bak.7z
+hardware/*.zip
 
 # --- Generated board 3D exports (footprint .stp models stay tracked) ---
 hardware/daughterboard/daughterboard.step
