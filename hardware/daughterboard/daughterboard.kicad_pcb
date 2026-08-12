@@ -338,7 +338,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 90)
 			(layer "F.Fab")
 			(uuid "069ac874-8b2f-4eb9-a85d-257fa22ac2f8")
@@ -728,7 +728,7 @@
 				)
 			)
 		)
-		(property "Value" "REF5030IDGKR"
+		(property "Value" "REF5030EIDR"
 			(at 0 3.4 0)
 			(layer "F.Fab")
 			(uuid "b35e75ae-e0f2-45de-9a41-9221e81e5fe0")
@@ -763,7 +763,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C2862926"
+		(property "LCSC" ""
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -2182,7 +2182,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "020a811d-1305-4d12-9953-57351c1fa36a")
@@ -2961,6 +2961,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -3459,6 +3460,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -4126,7 +4128,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 90)
 			(layer "F.Fab")
 			(uuid "83073949-b478-44bc-b6aa-3603272bd7c6")
@@ -4345,7 +4347,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "5530d1e2-70a9-4518-9dab-04777282baea")
@@ -5221,7 +5223,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 90)
 			(layer "F.Fab")
 			(uuid "01c9b02a-98ab-4dfd-b8c0-afe206d77779")
@@ -5493,6 +5495,7 @@
 				)
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
 			(start -1.15 -5.45)
@@ -6698,6 +6701,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -7709,6 +7713,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -7771,7 +7776,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "571893ab-e456-4171-b05d-df8391dac8d4")
@@ -8886,6 +8891,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -9509,7 +9515,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "4d1a9197-5350-4e51-9b17-b952005e93f9")
@@ -9775,6 +9781,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -10616,7 +10623,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "dbfb2827-56c3-48a8-b271-d4a684f786e1")
@@ -10995,7 +11002,7 @@
 		(at 96.999948 90.25)
 		(descr "SMD pad as test Point, diameter 1.0mm")
 		(tags "test point SMD pad")
-		(property "Reference" "VREF"
+		(property "Reference" "VREF1"
 			(at -3.3 1 0)
 			(layer "F.SilkS")
 			(uuid "85a895cb-97a8-4ef1-946d-0bc2439cd47c")
@@ -12890,6 +12897,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -12987,7 +12995,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C125128"
+		(property "LCSC" ""
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -13663,7 +13671,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "f186bb90-4f53-4fde-8a15-aac6d6260c1d")
@@ -14804,6 +14812,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -15474,6 +15483,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -15536,7 +15546,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "c0206fad-723c-4cfd-9559-3363a57c2229")
@@ -17691,7 +17701,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "47fa74f8-b5ec-4063-a5fd-e6ea7007acad")
@@ -18921,7 +18931,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(uuid "825f144b-996a-48cf-9d09-86e7836c1790")
@@ -19416,6 +19426,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -19480,7 +19491,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 90)
 			(layer "B.Fab")
 			(uuid "03de4b4e-b4a3-42c4-af5a-1f1d4082c383")
@@ -19930,7 +19941,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 90)
 			(layer "B.Fab")
 			(uuid "5c82f218-b935-476c-9a8b-f523a3aee418")
@@ -20155,7 +20166,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 0)
 			(layer "B.Fab")
 			(uuid "b2aaaf37-c8c4-4c73-a4b9-917340fa0d47")
@@ -20382,7 +20393,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -20786,6 +20797,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -20899,7 +20911,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -21028,7 +21040,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 0)
 			(layer "B.Fab")
 			(uuid "c2e1f91d-06c4-403b-800b-66021dfc6d62")
@@ -21302,7 +21314,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -21706,6 +21718,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -21770,7 +21783,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 0)
 			(layer "B.Fab")
 			(uuid "ce8b4e2b-9e7d-45f1-896b-1900b71b255d")
@@ -22223,6 +22236,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -22287,7 +22301,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 0)
 			(layer "B.Fab")
 			(uuid "9c6e32b8-cdb7-4bda-b347-a98d05086225")
@@ -22562,6 +22576,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -23943,6 +23958,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -24057,6 +24073,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -24121,7 +24138,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 90)
 			(layer "B.Fab")
 			(uuid "1dbb722a-d85f-42e4-9445-012bd1c4c131")
@@ -24395,7 +24412,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -24573,7 +24590,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -24751,7 +24768,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -25128,7 +25145,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -25257,7 +25274,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Value" "0.1uF"
+		(property "Value" "100nF"
 			(at 0 -1.43 90)
 			(layer "B.Fab")
 			(uuid "a7746ae5-69a1-4c79-bed9-cea30e8f67a9")
@@ -25756,7 +25773,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -25951,7 +25968,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Part Number" "MI0603K300R-10"
+		(property "Part Number" "FCM1608KF-601T05"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -25979,7 +25996,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" "C96708"
+		(property "LCSC" "C133937"
 			(at 0 0 90)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -26218,6 +26235,7 @@
 				(pins "1")
 			)
 		)
+		(attr exclude_from_bom)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_circle
 			(center 0 0)
@@ -34224,14 +34242,6 @@
 		(layer "B.Cu")
 		(net "+12V")
 		(uuid "5a1a72e0-d520-4462-ab12-11356ffcb4c0")
-	)
-	(segment
-		(start 134.899948 84.2)
-		(end 134.899948 84.75)
-		(width 0.3)
-		(layer "B.Cu")
-		(net "+12V")
-		(uuid "5e1f0926-2b16-47d8-82f7-097af27c14fa")
 	)
 	(segment
 		(start 129.249948 109.900052)

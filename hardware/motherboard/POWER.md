@@ -37,6 +37,9 @@ J12 ──► VIN_JACK ──► F1 (1812L150/24MR) ──┬──► D2 (TVS) 
                                  U4 PG  ──► R6 100k ──► +3.3V, and A1 pin 11 (GPIO8)
       3V3_EN (A1 pin 37) ──┬── R7 10k ── GND
                            └── R8 4.7k ── +3.3V (U4 pin 1)
+      +12V ──► R5 100k ──┬── 12V_SENSE ──► A1 pin 31 (GPIO26/ADC0)
+                         ├── R10 22k ── GND
+                         └── C10 100n ── GND (at the Pico pin)
       A1 pin 36 (3V3) and pin 40 (VBUS): unconnected.
       R1 100k: Q1 gate → GND.   D6: Q1 gate–source clamp.   R9 10k: U3 `~OE` pull-up.
       D3/D4/D5 + R2/R3/R4: rail LEDs on +12 V / +5 V / +3.3 V.
@@ -63,22 +66,41 @@ the board assigns differently. Current mapping:
 | `C11` | **`C9`** | LDO output, 10 µF 0805 |
 
 `R2`/`R3`/`R4` and `D3`/`D4`/`D5` are the **rail LEDs** on the board, so the "Still to add" table's
-use of `R4`, `R5` and `D4` for the sense divider and clamp is a collision. Free refdes are `R5`,
-`R10`+, `C10`+, `D7`+ — `R9` and `D6` are taken.
+use of `R4`, `R5` and `D4` for the sense divider and clamp is a collision.
+
+`R5`, `R10` and `C10` are now the sense divider and its filter — note the bottom leg is **`R10`**,
+not the `R13` earlier drafts of this document specced. Free refdes are `R11`+, `C11`+, `D7`+.
 
 ### Still outstanding
 
+Verified against a fresh netlist export and the `.kicad_pcb` on **2026-08-11**. Schematic and
+PCB agree on every net; no pad is left unreached by its own net's copper.
+
 | Item | Where |
 | --- | --- |
-| +12 V sense divider → `GPIO26` | "Rail sensing" |
-| `U3.~OE`: still hardwired to GND; `R9` placed but the GPIO net isn't cut over | "Power-up ordering" |
-| `D2` value is still `SMBJ13A` — wrong for a 15 V rail | "D2 — transient suppressor" |
-| `D6` value is still the placeholder `BZT52Bxx`, no LCSC part | "Q1 — reverse-polarity protection" |
-| `ADC_EN` / `DAC_EN` pull-ups | "Board-side defaults" |
-| `J1..J8.B31` → GND on all eight; delete the dangling one-node `PRSNT` net | "PRSNT" |
+| `Q1` is drawn with the `AO3401A` symbol while valued `AO3407A` | "Schematic hygiene" |
+| `D2`'s symbol carries no polarity (pins `A1`/`A2`) | "Schematic hygiene" |
 
-⚠️ **`motherboard.net` is a stale export.** It predates `D6`, `R9` and the fiducials. Re-export
-from KiCad before using it to check connectivity.
+**Electrically the board is complete.** Both open items are drawing hygiene, not connectivity.
+
+Closed since the last revision of this document: the +12 V sense divider (`R5`/`R10`/`C10` →
+`GPIO26`), the `U3.~OE` cutover to `GPIO19`, `D2` → `SMBJ16A`, `D6` → `BZT52C18`, the
+`#PWR050`/`#PWR036` symbol swap, and `J1..J8.B31` → GND on all eight with the dangling one-node
+`PRSNT` net deleted.
+
+Decided against, deliberately — see "Board-side defaults" and "Decoupling": the `ADC_EN`/`DAC_EN`
+pull-ups, the `U2` `EN` pull-down, and the 10 µF at the +3.3 V connector bank.
+
+✅ **`production/` was regenerated 2026-08-11 20:27** from the current board — it now includes the
+sense divider, the `~OE` cutover, the `D2`/`D6` changes and `J8.B31`. **This is the revision sent
+to fabrication (2026-08-12).**
+
+⚠️ **`motherboard.net` is still the 2026-08-10 18:04 export** and predates those changes. Re-export
+from KiCad before using it to check connectivity; `production/netlist.ipc` is the current one.
+
+⚠️ **No CLI DRC record exists for this revision.** `kicad-cli` 10.0.5 cannot open a `20260206`-format
+board, so clearances, annular rings and track widths were only ever checkable by running DRC inside
+the KiCad GUI. Any future respin needs the same in-app check before fab outputs are regenerated.
 
 ## Why this topology
 
@@ -193,7 +215,7 @@ float.
 
 | Signal | Pull | Status |
 | --- | --- | --- |
-| `ADC_EN` (`R10`), `DAC_EN` (`R11`) | 10 kΩ up to +3.3 V, `C84376` | **To fit.** Not a defect; fitting them because the board is not yet manufactured. |
+| `ADC_EN`, `DAC_EN` | 10 kΩ up to +3.3 V | ⛔ **Decided against (2026-08-11).** Not fitted. |
 
 ⚠️ **An earlier version of this section called a floating enable "harmful" because it can assert
 a chip select into powered daughterboards. That overstates it.** A chip select asserted with no
@@ -205,28 +227,39 @@ turns both input transistors partly on, raising supply current and risking oscil
 ~100–200 ms per power cycle. The bench result — eight daughterboards, working — is real evidence
 that this window is benign in practice.
 
-So these are **not** required, and if the board were already fabbed the right call would be to
-leave it alone. It isn't, and that flips the economics: two 0805s and two vias cost nothing
-before the first spin and a respin afterwards. Fit them. 100 kΩ works equally well and is gentler
-(33 µA vs 330 µA sunk when the Pico drives low) — either is fine against the RP2040's 12 mA drive.
+So these are **not** required. ⛔ **Decision, 2026-08-11: skipped.** The bench result — eight
+daughterboards, working — stands, and a ~100–200 ms window of elevated supply current per power
+cycle is not worth the parts. `ADC_EN` is `A1.7` + `U1.4` and `DAC_EN` is `A1.9` + `U5.4`, both
+with no pull, and that is the intended final state.
 
-Same class, lowest priority: `U2` (TMUX1208PW) has an **active-high** EN on pin 2, driven only by
-`GPIO9`. A 10 kΩ pull-**down** to GND (`R12`) defaults the EEPROM mux to disconnected. Genuinely
-optional — a mux connection with nothing driving it does nothing.
+If a future spin ever revisits it: 10 kΩ or 100 kΩ to +3.3 V, either fine against the RP2040's
+12 mA drive (100 kΩ is gentler — 33 µA vs 330 µA sunk when the Pico drives low).
+
+Same class, lowest priority, and **also skipped**: `U2` (TMUX1208PW) has an **active-high** EN on
+pin 2, driven only by `GPIO9`. A 10 kΩ pull-**down** to GND would default the EEPROM mux to
+disconnected. Genuinely optional — a mux connection with nothing driving it does nothing.
 
 ## Rail sensing
 
 Only **+12 V** needs sensing. The +3.3 V sense originally specced here is redundant: with the
 `3V3_EN` interlock, if the Pico is executing code at all then +3.3 V is necessarily up.
 
-| Leg | Ref | Value | Node |
-| --- | --- | --- | --- |
-| Top | `R5` | 100 kΩ 1% | `+12V` → `V12_SENSE` |
-| Bottom | `R13` | 22 kΩ 1% | `V12_SENSE` → GND |
-| Filter | `C10` | 100 nF | `V12_SENSE` → GND, at the pin |
+✅ **Built and verified 2026-08-11.** The net is named `12V_SENSE` on the board.
 
-Ratio 22/122 = **0.1803**, into `GPIO26` / ADC0 (A1 pad 31). *(`R9` is already taken by the `~OE`
-pull-up, hence `R13` for the bottom leg.)*
+| Leg | Ref | Value | LCSC | Node |
+| --- | --- | --- | --- | --- |
+| Top | `R5` | 100 kΩ 1% 0805 | `C96346` | `+12V` → `12V_SENSE` |
+| Bottom | `R10` | 22 kΩ 1% 0805 | `C114565` | `12V_SENSE` → GND |
+| Filter | `C10` | 100 nF 0603 | `C14663` | `12V_SENSE` → GND, at the pin |
+
+Ratio 22/122 = **0.1803**, into `GPIO26` / ADC0 (A1 pad 31). *(`R9` was already taken by the `~OE`
+pull-up, so the bottom leg is `R10`.)*
+
+**`C10` belongs at the Pico, not at the divider — and it is there:** 4.4 mm from `A1` pad 31,
+on the same vertical trace. The tap runs ~110 mm from the divider at the power stage to the
+Pico, at an 18.03 kΩ Thévenin impedance, so the filter earns its place at the load end. The
+corridor it shares carries `A3`, `PL` and `Q7_8` — no SPI clock, and `A3` is static during a
+transfer, so the coupling is benign.
 
 Across the 9–15 V input range:
 
@@ -241,9 +274,23 @@ Firmware conversion: `V12 = adc_volts * 5.5455` (122/22).
 
 **No Schottky clamp.** Earlier drafts specced a BAT54S to the Pico's 3V3. Drop it: the 100 kΩ
 top leg limits current into the pin's own ESD clamp to (26 − 3.6)/100 k ≈ 224 µA even during a
-full TVS event, and the 100 nF slews the edge. The external diode adds a part and a net for
+full TVS event, and the 100 nF slews the edge. **`C10` is load-bearing for that argument** —
+half the justification for omitting the clamp is the cap, so do not delete it as "just a filter". The external diode adds a part and a net for
 nothing. It would also have had nowhere good to clamp *to* — `A1` pin 36 must stay unconnected
 (see "Rejected alternatives"), so the only available node is the board's own +3.3 V rail.
+
+**No buffer either.** The 18.03 kΩ Thévenin looks high for an ADC input, but nothing here needs
+an op-amp. Settling is not the issue — R_th × C_sample is ~100 ns, well inside the RP2040's
+sample aperture. The switched-cap input's average draw is C_s·V·f_s, and *you choose f_s*: at a
+monitoring rate of ~1 kSPS it is sub-µV across 18 kΩ. Take short bursts and idle; do not
+free-run the ADC on this channel at hundreds of kSPS, which is the only way to make the
+impedance matter. And a buffer would add offset to a measurement whose error is already
+dominated by `ADC_VREF` (below), improving nothing measurable.
+
+*(Contrast the daughterboard, where the AD7193 does need external OPA2333 followers behind an
+almost identical 16.7 kΩ divider — a ΣΔ modulator samples continuously at a rate you cannot
+lower, into a µV error budget, and both of its internal buffer modes are ruled out. See
+`hardware/daughterboard/CLAUDE.md`.)*
 
 **Accuracy is not a design goal here.** `ADC_VREF` (A1 pad 35) stays unconnected; the module
 derives it from its own 3V3, so absolute accuracy is roughly ±4 % once the Pico's rail tolerance
@@ -268,8 +315,8 @@ What firmware should do with it:
 > no cost to them.
 >
 > **What to do on the board now:** tie `J1..J8.B31` to GND uniformly, and delete the dangling
-> one-node net `PRSNT` that `J1.B31` currently sits on. `J3.B31` is already on GND; the other six
-> are unconnected.
+> one-node net `PRSNT`. ✅ Done for `J1`–`J7`, and the dangling net is gone. ⚠️ **`J8.B31` is
+> still unconnected** — one wire left.
 >
 > Dropping it is what makes the GPIO budget close — see "GPIO budget" below.
 
@@ -396,8 +443,8 @@ on it.)
 Unidirectional, cathode to +12 V, anode to GND, **between F1 and Q1** so a surge *or* a
 reverse-polarity event conducts and blows the fuse — a crowbar backing up the FET.
 
-⚠️ **The placed value `SMBJ13A` is wrong for a 15 V input range and must change to `SMBJ16A`.**
-SMBJ13A has a 13 V standoff and a 14.4 V *minimum* breakdown: on a 15 V rail it conducts
+✅ **Now `SMBJ16A` (`C151254`).** The previously placed `SMBJ13A` was wrong for a 15 V input
+range: a 13 V standoff and a 14.4 V *minimum* breakdown means that on a 15 V rail it conducts
 continuously and destroys itself. SMBJ15A is not the answer either — its 15 V standoff sits
 exactly at the maximum, with no margin for an adapter that idles at 15.4 V.
 
@@ -432,17 +479,23 @@ PPTC takes ~0.1–1 s to trip. SMB handles that (IFSM ≈ 100 A / 8.3 ms), but o
 is **upstream** of the TVS. Wiring the TVS ahead of the fuse removes the only thing that ends the
 event — see "Layout notes".
 
-✅ **Symbol polarity — addressed.** The board originally drew `D2` with `Device:D_TVS`, the
-*bidirectional* symbol, whose pins are `A1`/`A2` and which therefore carries no polarity at all,
-against a polarized `D_SMB` land pattern. The schematic now uses `Diode:SM6T68A`, which is
-polarized. Confirm on the sheet that **the cathode faces +12 V and the anode faces GND**. Getting
-this backwards is not a subtle failure: a reversed TVS forward-conducts at ~0.9 V and shorts the
-rail on first power-up.
+⚠️ **Symbol polarity — still not addressed, despite an earlier ✅ here.** The board originally
+drew `D2` with `Device:D_TVS`, the *bidirectional* symbol, whose pins are `A1`/`A2` and which
+therefore carries no polarity at all, against a polarized `D_SMB` land pattern. Swapping to
+`Diode:SM6T68A` did **not** fix that: its pins are also named `A1`/`A2`. The sheet still cannot
+express which end is the cathode.
 
-⚠️ **But the symbol name lies.** `SM6T68A` is a 68 V TVS; only the `Value` field (`SMBJ13A`
-today, `SMBJ16A` after the change above) and the LCSC field describe the part actually fitted.
-That is legal in KiCad and the netlist is correct, but the next person to read the sheet will be
-misled. Either rename via a local symbol or accept it deliberately — see "Schematic hygiene".
+✅ **The board itself is correct**, verified 2026-08-11 against the PCB: pad 1 of the `D_SMB`
+footprint carries the cathode silkscreen bracket and sits on the fused input node with `F1.1`
+and `Q1.3` (drain); pad 2 is on GND. Cathode to the rail, anode to GND, TVS between fuse and
+FET — as specced. But it is right by land-pattern convention, not because the schematic says so.
+Getting this backwards is not a subtle failure: a reversed TVS forward-conducts at ~0.9 V and
+shorts the rail on first power-up.
+
+⚠️ **But the symbol name lies.** `SM6T68A` is a 68 V TVS; only the `Value` field (`SMBJ16A`) and
+the LCSC field (`C151254`) describe the part actually fitted. That is legal in KiCad and the
+netlist is correct, but the next person to read the sheet will be misled. Either rename via a
+local symbol or accept it deliberately — see "Schematic hygiene".
 
 ### Q1 — reverse-polarity protection
 P-channel MOSFET, high side. **Drain to the supply, source to the load.**
@@ -464,7 +517,7 @@ that's 36 mV and 26 mW, against ~0.33 W for a series Schottky.
 | Ref | Part | Role |
 | --- | --- | --- |
 | `R1` | 100 kΩ (`C96346`) | Gate → GND. Turns Q1 on when polarity is correct. Placed. |
-| `D6` | **BZT52C18** (18 V zener, SOD-123) | Gate–source clamp, cathode to source. Placed, **but valued `BZT52Bxx` — a placeholder with no LCSC part.** |
+| `D6` | **BZT52C18** (`C192739`, 18 V zener, SOD-123) | Gate–source clamp, cathode to source. ✅ Placed and valued; verified `K` → `+12V` (Q1 source), `A` → Q1 gate + `R1`. |
 
 **Why not AO3401A** (the obvious, cheapest choice, and what earlier drafts of this spec
 selected): it is rated **Vgs ±12 V**. With the gate pulled to GND on a 12 V rail, Vgs sits at
@@ -545,7 +598,10 @@ Verified on LCSC. Ceramics are specced **above** the datasheet's nominal voltage
 DC bias derating costs an X5R most of its capacitance near its rating, so a 10 V-rated 22 µF at
 5 V is really ~11 µF, while the 25 V part holds most of its value.
 
-**Standardised on 0805** for every ceramic, with one deliberate exception (`C5`, below).
+**Mixed case sizes, by design.** There is no single-size rule on this board: each ceramic is
+sized for its job — 0603 for the 100 nF decouplers and the sense filter, 0805 for the 10/22 µF
+regulator caps, 1210 for `C5`. An earlier draft of this document specced a blanket 0805
+standardisation; it was never carried out and is not wanted.
 
 **Refdes below are as built** — this table previously used the pre-rework numbering; see "Refdes
 drift" at the top if you are cross-referencing an older revision of this document.
@@ -556,19 +612,20 @@ drift" at the top if you are cross-referencing an older revision of this documen
 | `C5` | K7805 input (Table 1) | 10 µF 50 V X7R **1210** | Murata `GRM32ER71H106KA12L` | **`C77102`** |
 | `C6` | K7805 output (Table 1) | 22 µF 25 V X5R 0805 | Samsung `CL21A226MAQNNNE` | **`C45783`** |
 | `C8`, `C9` | LDO in / LDO out | 10 µF 25 V X5R 0805 | Murata `GRM21BR61E106KA73L` | **`C84416`** |
-| `C1`–`C4` | Per-IC decoupling | 100 nF 50 V X7R 0805 | Samsung `CL21B104KBCNNNC` | **`C1711`** |
-| `C10` | +12 V sense filter — *to add* | 100 nF 50 V X7R 0805 | Samsung `CL21B104KBCNNNC` | **`C1711`** |
+| `C1`–`C4` | Per-IC decoupling | 100 nF 50 V X7R **0603** | Samsung `CL10B104KB8NNNC` | **`C14663`** |
+| `C10` | +12 V sense filter | 100 nF 50 V X7R **0603** | Samsung `CL10B104KB8NNNC` | **`C14663`** |
 
-**Why 0603 was rejected:** 0603 tops out near 10 µF at 6.3–10 V. Neither 22 µF/25 V nor
-10 µF/50 V exists in that case size, so a single-size-0603 board is not buildable.
+**Why the bulk values are not 0603:** 0603 tops out near 10 µF at 6.3–10 V. Neither 22 µF/25 V
+nor 10 µF/50 V exists in that case size, so `C5`/`C6`/`C8`/`C9` have to be larger regardless.
+100 nF in 0603 is unaffected by any of that, which is why the decouplers stay small.
 
-**Why `C5` stays 1210.** DC bias derating worsens as the case shrinks — same voltage rating in a
+**Why `C5` is 1210.** DC bias derating worsens as the case shrinks — same voltage rating in a
 smaller package means thinner dielectric — and the 0805 50 V part is X5R where the 1210 is X7R,
 the more bias- and temperature-stable dielectric. `C5` sits on the +12 V rail, up to 15 V here,
 where an 0805 would keep roughly half its 10 µF. Table 1's 10 µF is a requirement of the module's
 input switching loop, not decoupling by habit, so undershooting it is a real compromise. The 0805
 option (`GRM21BR61H106KE43L`, `C440198`) is also 3× the price for less delivered capacitance —
-$0.325 vs $0.114. If strict single-size matters more, fit **two** `C440198` in parallel instead.
+$0.325 vs $0.114.
 
 Ceramics are specced **above** the datasheet's nominal voltage on purpose: an X5R loses most of
 its capacitance near its rating, so a 10 V-rated 22 µF at 5 V is really ~11 µF while the 25 V
@@ -675,8 +732,11 @@ The board carries `C1`–`C4` (100 nF) plus `C9` (10 µF) on +3.3 V. That is fou
 four ICs, so it is one-per-IC only if they are placed one-per-IC — check that in layout rather
 than assuming it from the count. There is **no** bulk ceramic at the +3.3 V connector bank beyond
 `C9`, and none at the +12 V bank at all; the +12 V side leans on `C7`'s 220 µF, which is upstream
-by the regulator rather than out at the sockets. Add 100 nF per remaining IC power pin and a
-10 µF at the far end of the connector bank if there is room.
+by the regulator rather than out at the sockets.
+
+⛔ **The extra 10 µF at the far end of the connector bank is skipped (2026-08-11).** `C9` plus
+the daughterboards' own local decoupling carry it; each board brings its own bulk behind its
+edge fingers.
 
 ## Layout notes
 
@@ -711,15 +771,13 @@ wrong, and one of them is genuinely dangerous to leave.
 
 | Ref | Symbol on the sheet | Actual part | Why it matters |
 | --- | --- | --- | --- |
-| `Q1` | `Transistor_FET:AO3401A` | AO3407A (`C15155`) | ⚠️ **Fix this one.** The whole reason for the 3407 is its ±20 V Vgs; the 3401 is ±12 V and would be over its absolute maximum on a 15 V rail. A sheet naming the 3401 invites someone to "correct" the BOM to match. |
-| `D2` | `Diode:SM6T68A` | SMBJ13A → **SMBJ16A** | SM6T68A is a 68 V part. The symbol was chosen for its polarity, not its value. |
+| `Q1` | `Transistor_FET:AO3401A` | AO3407A (`C15155`) | ⚠️ **Still open — fix this one.** The whole reason for the 3407 is its ±20 V Vgs; the 3401 is ±12 V and would be over its absolute maximum on a 15 V rail. A sheet naming the 3401 invites someone to "correct" the BOM to match. |
+| `D2` | `Diode:SM6T68A` | **SMBJ16A** (`C151254`) | ⚠️ **Still open.** SM6T68A is a 68 V part, *and* its pins are `A1`/`A2`, so it does not even buy the polarity it was chosen for. |
 | `U3` | `74xx:74HC595` | SN74LV595 (`C116847`) | Harmless — same pinout and function. |
+| `D6` | `Diode:BZT52Bxx` | BZT52C18 (`C192739`) | Harmless — generic zener symbol, correctly valued and sourced. |
 
-`#PWR050` and `#PWR036` have `Value` = `+12V` but use the `power:+3.3V` symbol graphic. Same
-class of problem: netlist correct, sheet misleading. Swap them for the right symbol.
-
-`D6` is valued **`BZT52Bxx`** — the generic library placeholder, with no LCSC field. It will not
-produce a BOM line as it stands. Set it to `BZT52C18`.
+✅ `#PWR050` and `#PWR036` are fixed — no power symbol on the sheet now has a `Value` that
+disagrees with its graphic.
 
 ## Build checklist
 
@@ -737,9 +795,9 @@ Verified on LCSC. Rows marked *(BOM)* are already in `master_bom_lcsc.csv`.
 | `U6` | K7805-500R3 (EVISUN) | `C19188491` | `Converter_DCDC:Converter_DCDC_TRACO_TSR-1_THT` |
 | `Q1` | AO3407A (AOS, Vgs ±20 V) | `C15155` | SOT-23 |
 | `D1` | SS34 (MDD) | `C8678` | `Diode_SMD:D_SMA` |
-| `D2` | ⚠️ **SMBJ16A** — replaces SMBJ13A (`C133675`) | **verify on LCSC** | `Diode_SMD:D_SMB` |
+| `D2` | SMBJ16A (Littelfuse) — replaced SMBJ13A (`C133675`) | ✅ **`C151254`** | `Diode_SMD:D_SMB` |
 | `D3`–`D5` | Rail LEDs (+12 V / +5 V / +3.3 V) | `C157740` | `LED_SMD:LED_0603_1608Metric` |
-| `D6` | ⚠️ **BZT52C18** — Q1 gate clamp; sheet still says `BZT52Bxx` | **verify on LCSC** | SOD-123 |
+| `D6` | BZT52C18-7-F (Diodes Inc) — Q1 gate clamp | ✅ **`C192739`** | `Diode_SMD:D_SOD-123` |
 | `F1` | 1812L150/24MR (Littelfuse) | `C142805` | 1812 |
 | `R1`, `R6` | 100 kΩ 0805 1% (Yageo `RC0805FR-07100KL`) | `C96346` | `Resistor_SMD:R_0805_2012Metric` |
 | `R2`, `R8` | 4.7 kΩ 0805 | `C431850` | `R_0805_2012Metric` |
@@ -753,14 +811,19 @@ Verified on LCSC. Rows marked *(BOM)* are already in `master_bom_lcsc.csv`.
 
 Capacitors are in "Capacitor part numbers" above.
 
-⚠️ **The two marked "verify on LCSC" have no part number here on purpose.** `SMBJ16A` and
-`BZT52C18` are not yet in the BOM and were not looked up; an invented code goes straight into a
-fab order. Search LCSC by MPN before ordering.
+✅ **`D2` and `D6` are now sourced.** Both looked up on LCSC 2026-08-11 and set in the schematic:
 
-For `D2` keep to **ST or Littelfuse** — this document's earlier warning still applies: LCSC lists
-SMBJ parts from a dozen no-name houses at a third of the price, and clamping voltage is exactly
-the spec generics are loosest about. For `D6` a generic is fine; it carries microamps into a gate.
-Diodes Inc `BZT52C18-7-F` is the reference part if you want a name on it.
+- **`D2` = Littelfuse SMBJ16A, `C151254`** — 16 V standoff, V_BR 17.8–19.7 V, 26 V clamp, 600 W
+  10/1000 µs, unidirectional, DO-214AA. Branded on purpose: LCSC lists SMBJ parts from a dozen
+  no-name houses at a third of the price, and clamping voltage is exactly the spec generics are
+  loosest about.
+- **`D6` = Diodes Inc BZT52C18-7-F, `C192739`** — 18 V, V_z spread 16.8–19.1 V, 500 mW, SOD-123.
+  A generic would be fine here (it carries microamps into a gate); the branded part costs
+  cents.
+
+**Note the `D6` footprint is plain `D_SOD-123`, not `SOD-123F`.** Every BZT52C18 on LCSC —
+Diodes Inc, LGE `C545295`, JSCJ `C43490`, YONGYUTAI — is standard SOD-123; the `BZT52C18S` parts
+that surface in a search are SOD-323, a different package. The board was corrected to match.
 
 Two sourcing questions this document used to flag are now **closed**: `U2` (TMUX1208PW) resolved
 to `C494728`, and `J9`–`J11` moved off the un-stocked Molex part to a stocked Hirose equivalent.
@@ -791,44 +854,43 @@ three different logic families in one line. Update it against `production/bom.cs
 
 ### Still to add
 
-Refdes here are the **free** ones on the current board. `R9` (`~OE` pull-up) and `D6` (gate clamp)
-are already placed, and `R2`/`R3`/`R4` and `D3`/`D4`/`D5` are the rail LEDs, so the numbering
-below deliberately skips them.
+**Nothing.** ✅ The sense divider went in as `R5` (100 kΩ, `C96346`), `R10` (22 kΩ, `C114565`)
+and `C10` (100 nF 0603, `C14663`), and every other item this table used to list has been
+deliberately dropped:
 
-| Ref | Part | LCSC | Where |
-| --- | --- | --- | --- |
-| `R5` | 100 kΩ 0805 | `C96346` | `+12V` → `V12_SENSE` |
-| `R13` | 22 kΩ 0805 (Yageo `RC0805FR-0722KL`) | `C114565` | `V12_SENSE` → GND |
-| `C10` | 100 nF 0805 | `C1711` | `V12_SENSE` → GND |
-| `R10`, `R11` | 10 kΩ 0805 (Yageo `RC0805FR-0710KL`) | `C84376` | `ADC_EN`, `DAC_EN` → `+3.3V` |
-| `R12` | 10 kΩ 0805 — *optional* | `C84376` | `U2` EN → GND (pull-down; EN is active-high) |
-| `C11` | 10 µF 0805 | `C84416` | `+3.3V` at the J1–J8 bank |
-| — | 100 nF 0805, a few more | `C1711` | one per remaining IC power pin |
+| Dropped | Why |
+| --- | --- |
+| `ADC_EN` / `DAC_EN` 10 kΩ pull-ups | Decision 2026-08-11 — see "Board-side defaults" |
+| `U2` EN 10 kΩ pull-down | Same; was always optional |
+| 10 µF at the J1–J8 +3.3 V bank | Decision 2026-08-11 — see "Decoupling" |
+| `BAT54S` sense clamp | The 100 kΩ top leg makes it unnecessary — see "Rail sensing" |
 
-**No `BAT54S`.** The clamp specced in earlier drafts is dropped — see "Rail sensing" for why the
-100 kΩ top leg makes it unnecessary.
+The one open suggestion is extra 100 nF (`C14663`) on any IC power pin that turns out not to
+have one — a layout check, not a known gap.
 
 ### Changes to placed parts
 
-| Ref | From | To |
-| --- | --- | --- |
-| `D2` | `SMBJ13A` (`C133675`) | **`SMBJ16A`** — required for a 15 V rail |
-| `D6` | `BZT52Bxx` placeholder, no LCSC | **`BZT52C18`** |
-| `Q1` | symbol `Transistor_FET:AO3401A` | a symbol that names the AO3407A actually fitted |
-| `U3.13` (`~OE`) | hardwired to GND | `GPIO19` (A1 pad 25), with `R9` pulling up to +3.3 V |
-| `C5` | — | confirm the 50 V rating is set in the schematic field |
+| Ref | From | To | Status |
+| --- | --- | --- | --- |
+| `D2` | `SMBJ13A` (`C133675`) | **`SMBJ16A`** (`C151254`) | ✅ done |
+| `D6` | `BZT52Bxx` placeholder, no LCSC | **`BZT52C18`** (`C192739`), footprint `D_SOD-123` | ✅ done |
+| `U3.13` (`~OE`) | hardwired to GND | `GPIO19` (A1 pad 25), with `R9` pulling up to +3.3 V | ✅ done |
+| `Q1` | symbol `Transistor_FET:AO3401A` | a symbol that names the AO3407A actually fitted | ⚠️ open |
+| `D2` | symbol `Diode:SM6T68A` (pins `A1`/`A2`) | a genuinely polarized symbol | ⚠️ open |
+| `C5` | — | the `Value` field is bare `10uF`; `C77102` is the correct 50 V 1210 part, so BOM and fab are right | cosmetic |
 
 Already done in `397a4a4`: the `U8`→`U6` K7805 swap, `C7` to a polarized `CP_Elec_8x10`, `C5` to
-1210, the 0603→0805 ceramic standardisation, `R7` 100 k→10 k, and `R8` 100 k→4.7 k with its far
-end moved from A1 pin 36 to `+3.3V`.
+1210, `R7` 100 k→10 k, and `R8` 100 k→4.7 k with its far end moved from A1 pin 36 to `+3.3V`.
+*(An earlier version of this line also claimed a 0603→0805 ceramic standardisation landed in
+`397a4a4`. It did not — `C1`–`C4` are 0603 — and the board no longer wants one.)*
 
 ### Net changes
 
 - ✅ `+12V` ← Q1 source. Done.
-- `A1.31` (GPIO26/ADC0) ← `V12_SENSE`.
-- `A1.25` (GPIO19) ← `U3.13`, cutting the existing tie to GND.
-- `J1..J8.B31` → GND on all eight, and delete the dangling one-node `PRSNT` net. `J3.B31` is
-  already on GND; `J1.B31` sits on the dangling net; the other six are unconnected.
+- ✅ `A1.31` (GPIO26/ADC0) ← `12V_SENSE`. Done.
+- ✅ `A1.25` (GPIO19) ← `U3.13`, tie to GND cut. Done — net `~{OE}` = `U3.13` + `A1.25` + `R9.1`.
+- ⚠️ `J1..J8.B31` → GND: **seven of eight done.** `J1`–`J7` are on GND and the dangling one-node
+  `PRSNT` net is gone; **`J8.B31` is still unconnected.**
 
 `R6`/`PG` on `GPIO8` **stays**. An earlier version of this list proposed dropping it to free the
 pin for PRSNT — with PRSNT deferred there is nothing to free it for, and six GPIOs are spare

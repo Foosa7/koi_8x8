@@ -62,7 +62,15 @@ removes. Figures are regenerated from the raw bench CSVs by
 | `firmware/motherboard-test/` | RP2040 firmware (PlatformIO, `pio run -t upload`) and Python host tools — `tools/koi_gui.py` is a live 8×8 monitor GUI; `tools/*.csv` are the raw bench datasets |
 | `paper/main.pdf` | Draft HardwareX manuscript (validation section pending the calibration campaign) |
 
-## Status (July 2026)
+## Status (August 2026)
+
+**In fab:** both revised boards were released to fabrication on **2026-08-12**.
+The motherboard adds the protected input stage (PPTC + SMBJ16A TVS + P-FET
+reverse-polarity with a BZT52C18 gate clamp), the 12 → 5 → 3.3 V tree with the
+`3V3_EN` interlock, a +12 V sense divider into `GPIO26`, and the `U3.~OE`
+cutover to `GPIO19`; the daughterboard adds the OPA2333 followers (U13–U16) and
+their 1 kΩ series resistors. `hardware/*/production/` holds the exact gerber /
+BOM / position sets that were sent.
 
 **Done:** rev-1 hardware designed, fabricated, and brought up; firmware 1.1
 with robust host protocol (auto-detection, hot-rescan, fast scanning); host GUI

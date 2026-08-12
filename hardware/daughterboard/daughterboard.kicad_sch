@@ -11934,7 +11934,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -12075,7 +12075,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C125128"
+		(property "LCSC" ""
 			(at 127 217.17 0)
 			(hide yes)
 			(show_name no)
@@ -12266,7 +12266,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -12693,7 +12693,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -14148,7 +14148,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 316.23 74.93 0)
 			(hide yes)
 			(show_name no)
@@ -14828,7 +14828,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -15402,7 +15402,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -15696,7 +15696,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 378.46 118.11 0)
 			(hide yes)
 			(show_name no)
@@ -15898,7 +15898,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -16902,7 +16902,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 316.23 118.11 0)
 			(hide yes)
 			(show_name no)
@@ -19342,7 +19342,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 378.46 74.93 0)
 			(hide yes)
 			(show_name no)
@@ -21390,7 +21390,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "REF5030IDGKR"
+		(property "Value" "REF5030EIDR"
 			(at 125.3333 38.1 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -21437,7 +21437,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C2862926"
+		(property "LCSC" ""
 			(at 125.73 45.72 0)
 			(hide yes)
 			(show_name no)
@@ -21802,7 +21802,7 @@
 				(justify left)
 			)
 		)
-		(property "Part Number" "MI0603K300R-10"
+		(property "Part Number" "FCM1608KF-601T05"
 			(at 137.922 267.97 0)
 			(hide yes)
 			(show_name no)
@@ -21824,7 +21824,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C96708"
+		(property "LCSC" "C133937"
 			(at 127 265.43 90)
 			(hide yes)
 			(show_name no)
@@ -22071,7 +22071,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 316.23 147.32 0)
 			(hide yes)
 			(show_name no)
@@ -22195,7 +22195,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -22275,7 +22275,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -22473,7 +22473,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -23046,7 +23046,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -23941,7 +23941,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 378.46 45.72 0)
 			(hide yes)
 			(show_name no)
@@ -25308,7 +25308,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 316.23 45.72 0)
 			(hide yes)
 			(show_name no)
@@ -26102,7 +26102,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C22548"
 			(at 378.46 147.32 0)
 			(hide yes)
 			(show_name no)
@@ -27412,7 +27412,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -28023,7 +28023,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -28181,7 +28181,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -29803,7 +29803,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -30114,7 +30114,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -30518,7 +30518,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -30980,7 +30980,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -31357,7 +31357,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
