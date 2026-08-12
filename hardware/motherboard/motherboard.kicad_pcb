@@ -11683,15 +11683,15 @@
 			)
 		)
 		(embedded_fonts no)
-		(model "${KICAD10_3DMODEL_DIR}/Module.3dshapes/RaspberryPi_Pico.step"
+		(model "${KIPRJMOD}/Pico.wrl"
 			(offset
-				(xyz 0 0 0)
+				(xyz 16 38.5 0)
 			)
 			(scale
-				(xyz 1 1 1)
+				(xyz 2.5 2.5 2.5)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -0 -0 -0)
 			)
 		)
 	)
