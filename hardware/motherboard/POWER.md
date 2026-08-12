@@ -3,9 +3,10 @@
 Protected barrel-jack entry, 5 V buck, 3.3 V LDO, and a hardware interlock that makes the Pico a
 subsystem of the board rather than an independent peer.
 
-**Status: mostly built.** The tree, the protection chain and the interlock are on the board as of
-`397a4a4`; "What exists today" lists what is still outstanding. Input range for this revision is
-**9–15 V**. The board has not been manufactured, so changes here are still free.
+**Status: released to fabrication 2026-08-12.** The tree, the protection chain and the interlock
+are on the board as of `397a4a4`; "What exists today" lists what is still outstanding. Input range
+for this revision is **9–15 V**. Changes are no longer free — this revision is at the fab, so
+anything below now describes a future spin.
 
 Make changes **in KiCad**, not by editing `motherboard.kicad_sch` by hand.
 
@@ -98,9 +99,15 @@ to fabrication (2026-08-12).**
 ⚠️ **`motherboard.net` is still the 2026-08-10 18:04 export** and predates those changes. Re-export
 from KiCad before using it to check connectivity; `production/netlist.ipc` is the current one.
 
-⚠️ **No CLI DRC record exists for this revision.** `kicad-cli` 10.0.5 cannot open a `20260206`-format
-board, so clearances, annular rings and track widths were only ever checkable by running DRC inside
-the KiCad GUI. Any future respin needs the same in-app check before fab outputs are regenerated.
+✅ **DRC run 2026-08-12** (`kicad-cli pcb drc motherboard.kicad_pcb` — the CLI *can* open this board
+now that KiCad 10.0.5 has re-saved it; only older on-disk formats defeated it). **0 errors, 0
+unconnected pads**, 4 warnings, none of them manufacturing defects:
+
+| Warning | What it is |
+| --- | --- |
+| `silk_overlap` ×1 | `CP` text vs `A1`'s reference designator |
+| `silk_edge_clearance` ×2 | `J12` silkscreen clipped by the board edge |
+| `lib_footprint_mismatch` ×1 | `U3`'s TSSOP-16 differs from `Package_SO`'s copy (local override) |
 
 ## Why this topology
 

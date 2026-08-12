@@ -36,18 +36,18 @@ than in firmware. Full design rationale: [`POWER.md`](POWER.md).
 
 | Ref | Part | Function |
 | --- | --- | --- |
-| J12 | Barrel jack + switch pin | DC power in, 9–26 V |
+| J12 | Barrel jack + switch pin | DC power in, 9–15 V |
 | F1 | 1812L150/24MR polyfuse | Input overcurrent protection |
-| D2 | SMBJ13A | Input TVS clamp |
+| D2 | SMBJ16A | Input TVS clamp (26 V clamping voltage) |
 | Q1 | AO3407A | P-FET reverse-polarity protection |
+| D6 | BZT52C18 | `Q1` gate–source clamp |
 | U6 | K7805-500R3 | 5 V switching regulator |
 | U4 | LP5912-3.3DRV | 3.3 V LDO — logic rail and daughterboard `+3V3` |
 | D1 | SS34 | Feeds the Pico's VSYS from the board's 5 V rail |
 | R7, R8 | 10 kΩ / 4.7 kΩ | `3V3_EN` interlock divider |
+| R5, R10, C10 | 100 kΩ / 22 kΩ / 100 nF | +12 V sense divider into `GPIO26`/ADC0 (×5.5455) |
 
-Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv)
-— note that file still predates the power rework and lists the removed `PS1`
-isolated DC-DC.
+Full pricing and part numbers: [`../../master_bom.csv`](../../master_bom.csv).
 
 ## Files
 
