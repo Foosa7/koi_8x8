@@ -18,7 +18,9 @@
  * ADC bus (SPI0): GP2=SCK, GP3=MOSI, GP4=MISO   (shared with SN74LV595)
  * DAC bus (SPI1): GP10=SCK, GP11=SDI            (write-only, no MISO/SDO)
  * SN74LV595 XTR_OD front-end enables: shares SPI0, RCLK=GP7
- * XTR200 EF error flags: private bit-banged chain, CP=GP16, Q7=GP17, PL=GP18
+ * SN74LV165 XTR200 ERRORFLAG readback: one per daughterboard, daisy-chained
+ *   board1→…→board8, bit-banged on dedicated pins (NOT on SPI0):
+ *   CP=GP16 (shift clock), Q7 of board 8 = GP17 (serial data), PL=GP18 (load)
  *
  * ──────────────────────────────────────────────────────────────────────────
  * HOST COMMAND PROTOCOL  (commands and replies are '\n'-terminated; every
@@ -29,7 +31,7 @@
  * Any line the firmware emits on its own (boot banner, cal progress, STREAM)
  * starts with '#' — an unprefixed line is always a direct command reply.
  *
- *   *IDN?               -> KOI,8x8,fw1.1
+ *   *IDN?               -> KOI,8x8,fw1.3
  *   *RST                -> OK *RST   (all currents 0, all front-ends disabled)
  *   ISETA i0 i1 .. i63  -> OK ISETA  (set all 64 currents in mA, g-order)
  *   ISET g mA           -> OK ISET <g>  (set one channel)
@@ -38,25 +40,52 @@
  *   MEAS? g             -> <volts>   (measure one channel; "nan" if absent)
  *   XTR <enmask>        -> OK XTR 0x..  (bit b = 1 enables board b's front-ends)
  *   AVG n               -> OK AVG <n>  (1..64 on-micro averages per measurement)
- *   RATE fs             -> OK RATE <fs>  (AD7193 filter word 1..1023)
+ *   RATE fs             -> OK RATE <fs>  (AD7193 filter word 1..1023; sets both
+ *                          the scan and single-conversion filter rate)
+ *   GAIN g              -> OK GAIN <g>  (AD7193 PGA gain 1|8|16|32|64|128;
+ *                          folded into the reported voltage, triggers a recal)
+ *   CHOP ON|OFF         -> OK CHOP ..  (chopper offset/drift cancellation; recal)
+ *   FILTER SINC3|SINC4  -> OK FILTER .. (digital filter type: SINC3 faster settle,
+ *                          SINC4 better rejection/noise — the default)
+ *   REJ60 ON|OFF        -> OK REJ60 .. (simultaneous 50/60 Hz notch rejection)
+ *   BIPOLAR ON|OFF      -> OK BIPOLAR .. (input polarity: OFF=unipolar 0..FS, the
+ *                          default; ON=bipolar ±FS so small negatives don't clamp)
+ *   BUF ON|OFF [CAL]    -> OK BUF ..    (AD7193 input buffer, fw1.3. ON is the
+ *                          only setting valid for normal use — the 6:1 divider
+ *                          is a ~16.7 kΩ source. OFF needs an SMU driving the
+ *                          pin directly and is for the measure-path A/B in
+ *                          docs/measure-path-offset.md §5. NO recal by default:
+ *                          whenever BUF OFF is legitimately in use the input is
+ *                          being forced to a non-zero voltage, which a
+ *                          zero-scale cal would silently absorb. Add CAL, with
+ *                          the input at 0 V, to refresh the offset.)
+ *   ADC?                -> OK ADC rate=.. avg=.. gain=.. chop=.. filter=.. rej60=..
+ *                          polarity=uni|bi buf=0|1  (live sampling settings)
  *   STREAM ON|OFF       -> OK STREAM  (periodic '# v0,..' dump for eyeballing)
  *   RESCAN              -> OK RESCAN active=0x.. new=0x..  (re-detect boards)
- *   FAULT?              -> OK FAULT latch=0x.. now=0x.. valid=0x..
- *                          64-bit masks in g-order (bit g = channel g) of the
- *                          XTR200 EF flags: `latch` is sticky since boot or the
- *                          last FAULTCLR, `now` is the live read. `valid` is a
- *                          per-BOARD mask of which slots the EF chain can be
- *                          trusted for (see efValidMask).
- *   FAULTCLR            -> OK FAULTCLR  (clear the sticky latch and re-arm the
- *                          channels; setpoints stay 0 — the host must re-ISET)
- *   FAULTEN ON|OFF      -> OK FAULTEN ..  (auto-zero a channel on fault;
- *                          default ON. OFF only reports, for bench debugging.)
  *   PING? b             -> OK PING <b> 1|0  (board liveness: ID + one real ADC
  *                          conversion, non-mutating; 0 for an undetected board
  *                          — use RESCAN to adopt it. The ADC is the only
  *                          readback on a board, so a passing PING is the proxy
  *                          that the whole board (incl. the write-only DAC's
  *                          shared select path) is seated and powered.)
+ *   DACINIT [b]         -> OK DACINIT 0x<mask>  (rewrite DAC config: soft
+ *                          reset, external ref, REFDIV÷2 gain, reload
+ *                          setpoints — board b or all populated. Recovery for
+ *                          a DAC that browned out back to its internal 2.5 V
+ *                          reference; mask = boards actually reinitialized.)
+ *   CAL [b]             -> OK CAL 0x<mask>  (run AD7193 internal zero/full-scale
+ *                          cal with the XTR200 front-ends forced off, board b or
+ *                          all populated; mask = boards calibrated)
+ *   CALCLR [b]          -> OK CALCLR 0x<mask>  (clear user cal: reset ADC to
+ *                          factory offset/full-scale + rewrite config, board b or
+ *                          all populated — A/B against CAL for the offset)
+ *   ERR?                -> OK ERR 0x<16 hex>  (snapshot of all 64 XTR200
+ *                          ERRORFLAG pins via the SN74LV165 chain; bit g =
+ *                          RAW level at channel g's EF pin — the host applies
+ *                          polarity. Bits of unpopulated boards are garbage:
+ *                          a missing board breaks the chain, mask by the
+ *                          active-board set.)
  *
  * Reported voltage is the RAW ADC-pin voltage (computed in double for full
  * 24-bit resolution). The host applies the known 6:1 input divider to recover
@@ -74,7 +103,6 @@
 #include "DAC80508.h"
 #include "AD7193.h"
 #include "XTR595.h"
-#include "EFChain.h"
 
 // ── Shared 74HC138 chip-select ──────────────────────────
 #define PIN_ADDR0     20
@@ -84,16 +112,10 @@
 #define PIN_DAC_EN     6
 #define PIN_XTR_RCLK   7
 
-// ── XTR200 EF chain (SN74LV165 ×8, private 3-wire bus) ──
-// Taken from hardware/motherboard/production/netlist.ipc, where CP/Q7_8/PL land
-// on Pico header pins 21/22/24. Every other net in that file agrees with the
-// pin numbers above, so these are almost certainly right — but that netlist
-// also shows GP7 unconnected while XTR_RCLK demonstrably works there, so it
-// lags the built board somewhere. Verify these three on the bench before
-// trusting a clean FAULT? reading.
-#define PIN_EF_CP     16
-#define PIN_EF_Q7     17
-#define PIN_EF_PL     18
+// ── SN74LV165 XTR200 ERRORFLAG chain (bit-banged, dedicated pins) ──
+#define PIN_ERR_CP    16   // shift clock (rising edge)
+#define PIN_ERR_Q7    17   // serial data: Q7 of the LAST 165 in the chain (board 8)
+#define PIN_ERR_PL    18   // parallel load, active low (CLK INH tied low on-board)
 
 // ── System size ─────────────────────────────────────────
 #define NUM_BOARDS     8
@@ -119,35 +141,45 @@ HC138 adcSelect(PIN_ADDR0, PIN_ADDR1, PIN_ADDR2, PIN_ADC_EN);
 HC138 dacSelect(PIN_ADDR0, PIN_ADDR1, PIN_ADDR2, PIN_DAC_EN);
 
 //                            MISO  MOSI  SCK
-arduino::MbedSPI dacSpi(       12,   11,   10);   // DAC, write-only (MISO unused)
-arduino::MbedSPI adcSpi(        4,    3,    2);   // ADC + 595 share this
+// Must match the wiring: the AD7193 DOUT lines land on GP4, so the ADC read
+// path is SPI0. Moving adcSpi to SPI1 (GP12 MISO, an unconnected pin) makes
+// every device read back 0x00 — ID mismatch on all 8, boards present or not.
+arduino::MbedSPI dacSpi(       12,   11,   10);   // DAC on SPI1, write-only (MISO unused)
+arduino::MbedSPI adcSpi(        4,    3,    2);   // ADC + 595 share SPI0
 
 DAC80508     dac(&dacSelect, &dacSpi, NUM_BOARDS, VREF);
 AD7193Driver adc(&adcSelect, &adcSpi, NUM_BOARDS);
 XTR595       xtr(&adcSpi, PIN_XTR_RCLK);
-EFChain      efChain(PIN_EF_PL, PIN_EF_CP, PIN_EF_Q7);
 
 // ── Runtime state ───────────────────────────────────────
 bool     boardActive[NUM_BOARDS];
 float    setpoint_mA[TOTAL_CH];
 float    calSlope[TOTAL_CH];
 float    calOffset[TOTAL_CH];
-uint8_t  avgCount = 1;            // on-micro averages per measurement
-uint16_t adcRate  = 8;           // AD7193 filter word (FS) used for fast scans
-                                 //   FS=8 ≈ 11 ms/ch; lower=faster/noisier
-                                 //   (RATE 4 ≈ 5.6 ms/ch), higher=cleaner.
+uint8_t  avgCount = 4;            // on-micro averages per measurement (default 4)
+uint16_t adcRate  = 16;          // AD7193 filter word (FS) used for fast scans.
+                                 //   Default 16 (~0.9 s full-grid refresh, quieter
+                                 //   than FS=8). Per-channel time ≈ 0.83 ms × FS
+                                 //   (SINC4 settling, ~4 conv periods — NOT 1/ODR):
+                                 //   FS=8 ≈ 8 ms/ch, FS=240 ≈ 0.2 s/ch. Higher
+                                 //   FS = slower/cleaner. ODR = 4.92MHz/(1024·FS).
+// AD7193 sampling settings (host-tunable; applied to every populated board by
+// writeBoardConfig, so they survive RESCAN/reset). CHOP + REJ60 + SINC3 trade
+// speed for noise/offset; gain is the PGA field (folded into codeToVolts so the
+// reported voltage stays the true ADC-pin voltage regardless of gain).
+uint8_t  adcGain  = AD7193_CONF_GAIN_1;  // encoded CONF gain field (not the ×N)
+bool     adcChop  = false;       // CHOP: chopper offset/drift cancellation
+bool     adcSinc3 = false;       // filter: false = SINC4 (default), true = SINC3
+bool     adcRej60 = false;       // simultaneous 50/60 Hz notch rejection
+bool     adcBipolar = false;     // false = unipolar (0..FS), true = bipolar (±FS)
+// AD7193 input buffer. ON is the only setting valid for normal use here: the
+// 6:1 sense divider presents ~16.7 kΩ, and unbuffered mode needs a low-impedance
+// source driving the pin directly (an SMU on a desoldered channel). OFF exists
+// for the measure-path A/B in docs/measure-path-offset.md §5 — with BUF on, the
+// absolute input range is AGND+250 mV..AVDD−250 mV and that applies to AINCOM,
+// which is tied to AGND here, so the part is out of spec by construction.
+bool     adcBuf = true;
 uint8_t  xtrState = 0xFF;        // OD bits: 1 = disabled, 0 = enabled
-
-// ── XTR200 fault state ──────────────────────────────────
-// efNow   : live EF read, bit ch = channel ch asserting EF right now
-// efLatch : sticky since boot / last FAULTCLR. A latched channel is FORCED to
-//           0 mA by writeChannel() until cleared, so a fault cannot be undone
-//           by the host simply re-sending a setpoint.
-uint8_t  efNow[NUM_BOARDS];
-uint8_t  efLatch[NUM_BOARDS];
-bool     faultTrip = true;       // auto-zero on fault (FAULTEN)
-uint32_t faultLast = 0;
-#define  FAULT_POLL_MS  20
 
 bool     streamOn = false;
 uint32_t streamInterval = 1000;
@@ -181,15 +213,49 @@ static uint16_t mAToCode(uint8_t g, float mA) {
 // daughterboards share the layout, so one table serves all.)
 static const uint8_t DAC_CH_FOR_PHYS[CH_PER_BOARD] = {7, 0, 6, 1, 5, 2, 4, 3};
 
+// Forward map (inverse of DAC_CH_FOR_PHYS): DAC-output index → physical channel,
+// i.e. out0→ch1, out1→ch3, … out7→ch0. The XTR200 front ends — and their
+// ERRORFLAG pins on the SN74LV165 chain — are laid out in this same DAC-output
+// order, so readErrorChain() uses it to place each flag on its physical channel.
+static const uint8_t PHYS_FOR_DAC[CH_PER_BOARD] = {1, 3, 5, 7, 6, 4, 2, 0};
+
 static void writeChannel(uint8_t g) {
     uint8_t b  = g / CH_PER_BOARD;
     uint8_t ch = g % CH_PER_BOARD;             // physical channel
     if (!boardActive[b]) return;
-    // A latched fault pins the channel at 0 mA regardless of the setpoint, so a
-    // host that keeps re-sending ISET cannot re-energise a broken heater. Only
-    // FAULTCLR re-arms it.
-    uint16_t code = (efLatch[b] & (1u << ch)) ? 0 : mAToCode(g, setpoint_mA[g]);
-    dac.setDAC(b, DAC_CH_FOR_PHYS[ch], code);
+    dac.setDAC(b, DAC_CH_FOR_PHYS[ch], mAToCode(g, setpoint_mA[g]));
+}
+
+// Decode the CONF gain field into its numeric PGA gain (×1..×128).
+static inline uint16_t adcGainValue() {
+    switch (adcGain) {
+        case AD7193_CONF_GAIN_8:   return 8;
+        case AD7193_CONF_GAIN_16:  return 16;
+        case AD7193_CONF_GAIN_32:  return 32;
+        case AD7193_CONF_GAIN_64:  return 64;
+        case AD7193_CONF_GAIN_128: return 128;
+        default:                   return 1;   // AD7193_CONF_GAIN_1
+    }
+}
+
+// Non-channel MODE flags common to every mode write (idle/single/scan): internal
+// clock (mandatory — no crystal) plus the host-tunable SINC3 / REJ60 filter bits.
+static inline uint32_t adcModeFlags() {
+    uint32_t m = AD7193_MODE_CLKSRC_INT;
+    if (adcSinc3) m |= AD7193_MODE_SINC3;
+    if (adcRej60) m |= AD7193_MODE_REJ60;
+    return m;
+}
+
+static inline double codeToVolts(uint32_t raw) {
+    // V_in referred to the ADC pin (÷gain so the host's 6:1 divider stays gain-
+    // independent). Double keeps full 24-bit precision. Unipolar: 0..FS maps
+    // 0..2^24. Bipolar: ±FS maps 0..2^24 with midscale (2^23) = 0 V, so small
+    // negative offsets read as negative instead of clamping at 0.
+    double g = (double)adcGainValue();
+    if (adcBipolar)
+        return (((double)raw / 8388608.0) - 1.0) * (double)ADC_VREF / g;
+    return ((double)raw / 16777216.0) * (double)ADC_VREF / g;
 }
 
 // Measure one channel: average avgCount single conversions and return the RAW
@@ -204,14 +270,7 @@ static double measureChannel(uint8_t g) {
     for (uint8_t i = 0; i < n; i++) {
         acc += adc.singleConversion(b, AD7193_CONF_CHAN(ch));
     }
-    uint32_t raw = (uint32_t)(acc / n);
-    // 24-bit unipolar, gain 1: V = raw / 2^24 × VREF.
-    return ((double)raw / 16777216.0) * (double)ADC_VREF;
-}
-
-static inline double codeToVolts(uint32_t raw) {
-    // 24-bit unipolar, gain 1: V = raw / 2^24 × VREF. Double keeps full bits.
-    return ((double)raw / 16777216.0) * (double)ADC_VREF;
+    return codeToVolts((uint32_t)(acc / n));
 }
 
 // Measure all 64 channels into `out` as a CSV line, THEN return — nothing is
@@ -233,7 +292,7 @@ static void buildMeasureLine(char* out, size_t cap, uint8_t bmask) {
         for (uint8_t a = 0; a < n; a++) {
             uint32_t codes[CH_PER_BOARD] = {0};
             uint8_t got = adc.scanContinuous(b, adc.confReg[b], adcRate,
-                                             CH_PER_BOARD, codes);
+                                             CH_PER_BOARD, codes, adcModeFlags());
             for (uint8_t ch = 0; ch < CH_PER_BOARD; ch++) {
                 if (got & (1u << ch)) { acc[ch] += codes[ch]; good[ch]++; }
             }
@@ -266,25 +325,64 @@ static void buildMeasureLine(char* out, size_t cap, uint8_t bmask) {
 // that may be absent. The internal clock select is mandatory: with the default
 // (external-crystal) clock bits and no crystal, RDY never asserts.
 static void writeBoardConfig(uint8_t b) {
-    // Pseudo-differential, REFIN2, unipolar, gain 1, channel AIN1.
-    // BUF is deliberately NOT set: the internal buffer needs AGND+250 mV of
-    // headroom, and behind the 6:1 sense divider a low-current channel sits
-    // below that — which is what produced the ~3 mV offset. External OPA2333
-    // followers (U13-U16) buffer instead. See CLAUDE.md.
+    // Pseudo-differential, REFIN2, channel AIN1; gain, CHOP, polarity
+    // (uni/bipolar) and the input buffer from the host-tunable settings.
     adc.confReg[b] = AD7193_CONF_PSEUDO | AD7193_CONF_REFSEL | AD7193_CONF_REFDET |
-                     AD7193_CONF_UNIPOLAR | AD7193_CONF_GAIN_1 |
-                     AD7193_CONF_CHAN(0);
+                     (adcGain & AD7193_CONF_GAIN_MASK) | AD7193_CONF_CHAN(0);
+    if (adcBuf)      adc.confReg[b] |= AD7193_CONF_BUF;
+    if (!adcBipolar) adc.confReg[b] |= AD7193_CONF_UNIPOLAR;
+    if (adcChop)     adc.confReg[b] |= AD7193_CONF_CHOP;
     adc.writeRegister(b, AD7193_REG_CONF, adc.confReg[b]);
 
-    // Internal clock (no crystal on these boards), idle, rate 96.
-    adc.modeReg[b] = AD7193_MODE_IDLE | AD7193_MODE_CLKSRC_INT | AD7193_MODE_RATE(96);
+    // Idle, internal clock + filter flags, filter word = adcRate. Using adcRate
+    // (not a fixed 96) keeps MEAS?'s singleConversion in sync with MEASA?'s scan.
+    adc.modeReg[b] = AD7193_MODE_IDLE | adcModeFlags() | AD7193_MODE_RATE(adcRate);
     adc.writeRegister(b, AD7193_REG_MODE, adc.modeReg[b]);
 }
 
 static void configureBoard(uint8_t b) {
     writeBoardConfig(b);
+    // Force ALL XTR200 front-ends OFF across the AD7193 internal zero/full-scale
+    // calibration, then restore. An enabled front-end sources its offset current
+    // into the load during the cal, which biases the zero-scale point — that
+    // stray offset is exactly what we were chasing. At boot xtrState is already
+    // 0xFF (disabled); on a runtime RESCAN it holds the live enables, so saving
+    // and restoring it leaves the enable state untouched.
+    uint8_t savedXtr = xtrState;
+    xtr.setOutputs(0xFF);                 // OD all high = all front-ends disabled
     adc.calibrateInternalZero(b);
     adc.calibrateInternalFull(b);
+    xtr.setOutputs(savedXtr);             // restore prior enable state
+}
+
+// Re-apply the current ADC sampling settings to every populated board after a
+// live setting change. `recal` runs the full internal zero/full-scale cal
+// (configureBoard) — needed when CHOP changes; rate/filter changes just
+// rewrite CONF+MODE (writeBoardConfig), no recal required.
+static void reapplyAdcSettings(bool recal) {
+    for (uint8_t b = 0; b < NUM_BOARDS; b++) {
+        if (!boardActive[b]) continue;
+        if (recal) configureBoard(b);
+        else       writeBoardConfig(b);
+    }
+}
+
+// Re-apply settings + run a ZERO-SCALE-ONLY cal on every populated board — used
+// on a gain change. The AD7193's offset register is gain-dependent: a stale
+// gain-1 offset applied at a higher gain over-subtracts and clamps the unipolar
+// result to 0. Internal zero-scale cal is valid at any gain, so re-run it at the
+// new gain; the full-scale coefficient (valid only at gain 1) is left untouched
+// from boot — running full-scale cal here would corrupt it. Front-ends forced
+// off across the cal so no XTR200 offset current biases the zero point.
+static void recalZeroScaleActive() {
+    uint8_t savedXtr = xtrState;
+    xtr.setOutputs(0xFF);                 // OD all high = all front-ends disabled
+    for (uint8_t b = 0; b < NUM_BOARDS; b++) {
+        if (!boardActive[b]) continue;
+        writeBoardConfig(b);              // apply the new gain first
+        adc.calibrateInternalZero(b);     // offset cal at the new gain
+    }
+    xtr.setOutputs(savedXtr);             // restore prior enable state
 }
 
 // ── Board presence detection ────────────────────────────
@@ -327,56 +425,34 @@ static void setEnableMask(uint8_t enMask) {
     xtr.setOutputs(xtrState);
 }
 
-// ── XTR200 fault polling ────────────────────────────────
-// Which board slots the EF chain can be trusted for. The '165s are daisy-
-// chained board0 -> board1 -> ... -> board7 -> Pico, and an unpopulated slot
-// removes that board's '165 and breaks the chain. Boards DOWNSTREAM of the
-// highest gap (higher index, nearer the Pico) still clock out their own bits
-// correctly; everything upstream of it shifts in garbage from a floating DS.
-static uint8_t efValidMask() {
-    int gap = -1;
-    for (int b = 0; b < NUM_BOARDS; b++) if (!boardActive[b]) gap = b;
-    uint8_t m = 0;
-    for (int b = gap + 1; b < NUM_BOARDS; b++) m |= (uint8_t)(1u << b);
-    return m;
-}
-
-// Read the chain, latch new faults, and zero the offending channels.
-//
-// Boards whose front ends are disabled (OD high) are skipped: with the output
-// in high-Z the XTR200 cannot reach the commanded current and legitimately
-// raises EF, which would otherwise latch a fault on every channel of an idle
-// board. An ENABLED board sitting at 0 mA reads clean, because open-circuit
-// detection needs VIN > 350 mV to arm in the first place.
-static void pollFaults() {
-    uint8_t raw[NUM_BOARDS];
-    efChain.read(raw, NUM_BOARDS);
-
-    uint8_t valid = efValidMask();
-    for (uint8_t b = 0; b < NUM_BOARDS; b++) {
-        bool enabled = !(xtrState & (1u << b));
-        if (!(valid & (1u << b)) || !enabled) { efNow[b] = 0; continue; }
-
-        efNow[b] = raw[b];
-        uint8_t newly = (uint8_t)(raw[b] & ~efLatch[b]);
-        efLatch[b] |= raw[b];
-        if (!faultTrip || !newly) continue;
-
-        for (uint8_t ch = 0; ch < CH_PER_BOARD; ch++) {
-            if (!(newly & (1u << ch))) continue;
-            uint16_t g = b * CH_PER_BOARD + ch;
-            setpoint_mA[g] = 0.0f;
-            writeChannel((uint8_t)g);     // efLatch is already set -> forces 0
+// Snapshot all 64 XTR200 ERRORFLAG pins via the daisy-chained SN74LV165s
+// (one per daughterboard, 8 EF inputs each; board1's Q7 feeds board2's SER,
+// …, board8's Q7 is GP17). Returns RAW input levels, bit g = channel g's EF
+// pin — polarity is the host's problem. Shift order: after the PL pulse the
+// first bit on Q7 is board 8 input H, then G..A, then board 7 streams through.
+// The 165 inputs sit in the same DAC-output order as the front ends, so each
+// arriving slot is a DAC-output index — remapped to its physical channel via
+// PHYS_FOR_DAC so a fault lands on the same channel the DAC drive / GUI use
+// (chain position = daughterboard slot). A missing daughterboard breaks the
+// chain, so bits for boards wired UPSTREAM of a gap are garbage — the host
+// masks by the active-board set.
+static uint64_t readErrorChain() {
+    digitalWrite(PIN_ERR_PL, LOW);         // latch the 64 flag inputs
+    delayMicroseconds(1);
+    digitalWrite(PIN_ERR_PL, HIGH);
+    delayMicroseconds(1);
+    uint64_t v = 0;
+    for (int b = NUM_BOARDS - 1; b >= 0; b--) {
+        for (int slot = CH_PER_BOARD - 1; slot >= 0; slot--) {
+            int g = b * CH_PER_BOARD + PHYS_FOR_DAC[slot];   // slot = DAC-output idx
+            if (digitalRead(PIN_ERR_Q7)) v |= (1ULL << g);
+            digitalWrite(PIN_ERR_CP, HIGH); // rising edge shifts the next bit in
+            delayMicroseconds(1);
+            digitalWrite(PIN_ERR_CP, LOW);
+            delayMicroseconds(1);
         }
     }
-}
-
-// Pack a per-board bitmap into one 64-bit g-ordered mask (bit g = channel g).
-static uint64_t efPack(const uint8_t* per) {
-    uint64_t m = 0;
-    for (uint8_t b = 0; b < NUM_BOARDS; b++)
-        m |= (uint64_t)per[b] << (b * CH_PER_BOARD);
-    return m;
+    return v;
 }
 
 static void reply(const char* s)    { Serial.println(s); }
@@ -391,7 +467,7 @@ static void processLine(char* line) {
     if (!cmd) return;
 
     if (strcasecmp(cmd, "*IDN?") == 0) {
-        reply("KOI,8x8,fw1.1");
+        reply("KOI,8x8,fw1.3");
 
     } else if (strcasecmp(cmd, "*RST") == 0) {
         for (uint16_t g = 0; g < TOTAL_CH; g++) { setpoint_mA[g] = 0.0f; writeChannel(g); }
@@ -461,13 +537,114 @@ static void processLine(char* line) {
         int fs = atoi(a);
         if (fs < 1 || fs > 1023) { replyErr("RATE 1..1023"); return; }
         adcRate = (uint16_t)fs;                 // used by the continuous scan
-        for (uint8_t b = 0; b < NUM_BOARDS; b++) {
-            if (!boardActive[b]) continue;      // keep MEAS? single-conv in sync
-            adc.modeReg[b] = (adc.modeReg[b] & ~0x3FFUL) | AD7193_MODE_RATE(fs);
-            adc.writeRegister(b, AD7193_REG_MODE, adc.modeReg[b]);
-        }
+        reapplyAdcSettings(false);              // keep MEAS? single-conv in sync
         char buf[20];
         snprintf(buf, sizeof(buf), "OK RATE %d", fs);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "GAIN") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if (!a) { replyErr("usage: GAIN <1|8|16|32|64|128>"); return; }
+        int g = atoi(a);
+        uint8_t code;
+        switch (g) {
+            case 1:   code = AD7193_CONF_GAIN_1;   break;
+            case 8:   code = AD7193_CONF_GAIN_8;   break;
+            case 16:  code = AD7193_CONF_GAIN_16;  break;
+            case 32:  code = AD7193_CONF_GAIN_32;  break;
+            case 64:  code = AD7193_CONF_GAIN_64;  break;
+            case 128: code = AD7193_CONF_GAIN_128; break;
+            default:  replyErr("GAIN 1|8|16|32|64|128"); return;
+        }
+        adcGain = code;
+        // Zero-scale re-cal at the new gain: the offset register is gain-
+        // dependent, and a stale gain-1 offset applied at a higher gain drives
+        // the unipolar reading to 0. This is the fast cal only (no full-scale,
+        // which is invalid above gain 1 — the boot gain-1 coeff is kept).
+        recalZeroScaleActive();
+        char buf[20];
+        snprintf(buf, sizeof(buf), "OK GAIN %d", g);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "CHOP") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "ON")  == 0) adcChop = true;
+        else if (a && strcasecmp(a, "OFF") == 0) adcChop = false;
+        else { replyErr("usage: CHOP ON|OFF"); return; }
+        reapplyAdcSettings(true);               // chop changes the cal → recalibrate
+        reply(adcChop ? "OK CHOP ON" : "OK CHOP OFF");
+
+    } else if (strcasecmp(cmd, "FILTER") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "SINC4") == 0) adcSinc3 = false;
+        else if (a && strcasecmp(a, "SINC3") == 0) adcSinc3 = true;
+        else { replyErr("usage: FILTER SINC3|SINC4"); return; }
+        reapplyAdcSettings(false);
+        reply(adcSinc3 ? "OK FILTER SINC3" : "OK FILTER SINC4");
+
+    } else if (strcasecmp(cmd, "REJ60") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "ON")  == 0) adcRej60 = true;
+        else if (a && strcasecmp(a, "OFF") == 0) adcRej60 = false;
+        else { replyErr("usage: REJ60 ON|OFF"); return; }
+        reapplyAdcSettings(false);
+        reply(adcRej60 ? "OK REJ60 ON" : "OK REJ60 OFF");
+
+    } else if (strcasecmp(cmd, "BIPOLAR") == 0) {
+        char* a = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "ON")  == 0) adcBipolar = true;
+        else if (a && strcasecmp(a, "OFF") == 0) adcBipolar = false;
+        else { replyErr("usage: BIPOLAR ON|OFF"); return; }
+        // No recal — polarity just reinterprets the code midpoint; the offset
+        // register from the last (gain) cal still applies, so a small residual
+        // now reads as a signed value instead of clamping at 0.
+        reapplyAdcSettings(false);
+        reply(adcBipolar ? "OK BIPOLAR ON" : "OK BIPOLAR OFF");
+
+    } else if (strcasecmp(cmd, "BUF") == 0) {
+        // BUF ON|OFF [CAL]
+        //
+        // Switching the buffer moves the offset, so a zero-scale recal is
+        // wanted in principle — but it is NOT run by default, and that is
+        // deliberate. Unbuffered mode is only valid with an external source
+        // driving the ADC pin directly, so whenever BUF OFF is legitimately in
+        // use there is a non-zero forced voltage on the input and a ZERO-scale
+        // cal is meaningless: it either times out, or "succeeds" and silently
+        // folds the forced voltage into the offset register. Both were observed
+        // on 2026-07-31 with an SMU at 100 mV. Pass the explicit CAL argument
+        // once the input is actually at zero.
+        char* a = strtok_r(NULL, " ,\t", &save);
+        char* c = strtok_r(NULL, " ,\t", &save);
+        if      (a && strcasecmp(a, "ON")  == 0) adcBuf = true;
+        else if (a && strcasecmp(a, "OFF") == 0) adcBuf = false;
+        else { replyErr("usage: BUF ON|OFF [CAL]"); return; }
+        bool wantCal = (c && strcasecmp(c, "CAL") == 0);
+        if (c && !wantCal) { replyErr("usage: BUF ON|OFF [CAL]"); return; }
+
+        if (wantCal && adcBipolar) {
+            // Cal-in-bipolar is known to wedge this part at code 0.
+            reapplyAdcSettings(false);
+            Serial.println("# [BUF] CAL requested but bipolar is active — recal "
+                           "SKIPPED (cal-in-bipolar wedges the ADC). BIPOLAR OFF "
+                           "first, then BUF <state> CAL.");
+        } else if (wantCal) {
+            recalZeroScaleActive();
+        } else {
+            reapplyAdcSettings(false);
+            Serial.println("# [BUF] config rewritten, offset NOT recalibrated. "
+                           "The offset register still holds the value from the "
+                           "previous buffer setting. With the input at 0 V, run "
+                           "'BUF <state> CAL' (or CAL) to refresh it.");
+        }
+        reply(adcBuf ? "OK BUF ON" : "OK BUF OFF");
+
+    } else if (strcasecmp(cmd, "ADC?") == 0) {
+        char buf[104];
+        snprintf(buf, sizeof(buf),
+                 "OK ADC rate=%u avg=%u gain=%u chop=%d filter=%s rej60=%d polarity=%s buf=%d",
+                 (unsigned)adcRate, (unsigned)avgCount, (unsigned)adcGainValue(),
+                 adcChop ? 1 : 0, adcSinc3 ? "SINC3" : "SINC4", adcRej60 ? 1 : 0,
+                 adcBipolar ? "bi" : "uni", adcBuf ? 1 : 0);
         reply(buf);
 
     } else if (strcasecmp(cmd, "STREAM") == 0) {
@@ -512,33 +689,6 @@ static void processLine(char* line) {
                  activeMask, newlyFound);
         reply(buf);
 
-    } else if (strcasecmp(cmd, "FAULT?") == 0) {
-        pollFaults();                       // answer from a fresh read
-        // Printed as two 32-bit halves: newlib-nano's printf drops %ll support,
-        // so a single %016llX would emit garbage here.
-        uint64_t l = efPack(efLatch), n = efPack(efNow);
-        char buf[80];
-        snprintf(buf, sizeof(buf),
-                 "OK FAULT latch=0x%08lX%08lX now=0x%08lX%08lX valid=0x%02X",
-                 (unsigned long)(l >> 32), (unsigned long)(l & 0xFFFFFFFFUL),
-                 (unsigned long)(n >> 32), (unsigned long)(n & 0xFFFFFFFFUL),
-                 efValidMask());
-        reply(buf);
-
-    } else if (strcasecmp(cmd, "FAULTCLR") == 0) {
-        // Re-arm every channel. Setpoints were zeroed when the fault tripped
-        // and are deliberately NOT restored — the host must re-ISET, so nothing
-        // comes back on current by surprise.
-        for (uint8_t b = 0; b < NUM_BOARDS; b++) { efLatch[b] = 0; efNow[b] = 0; }
-        for (uint16_t g = 0; g < TOTAL_CH; g++) writeChannel((uint8_t)g);
-        reply("OK FAULTCLR");
-
-    } else if (strcasecmp(cmd, "FAULTEN") == 0) {
-        char* a = strtok_r(NULL, " ,\t", &save);
-        if      (a && strcasecmp(a, "ON")  == 0) { faultTrip = true;  reply("OK FAULTEN ON"); }
-        else if (a && strcasecmp(a, "OFF") == 0) { faultTrip = false; reply("OK FAULTEN OFF"); }
-        else replyErr("usage: FAULTEN ON|OFF");
-
     } else if (strcasecmp(cmd, "PING?") == 0) {
         // Board liveness check, non-mutating: re-verify an active board with
         // the ADC (ID nibble + one real conversion — the only readback a board
@@ -551,6 +701,107 @@ static void processLine(char* line) {
         bool alive = boardActive[b] && confirmPresent((uint8_t)b);
         char buf[24];
         snprintf(buf, sizeof(buf), "OK PING %d %d", b, alive ? 1 : 0);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "DACINIT") == 0) {
+        // Recover a DAC that lost its config mid-session (brownout → back to
+        // the internal 2.5 V reference; the write-only bus can't detect this,
+        // so the host infers it — e.g. a channel reading >1 V at 0 mA — and
+        // asks for a rewrite). Soft-resets the DAC(s), re-selects external
+        // ref + REFDIV÷2 gain, reloads the live setpoints. Optional board
+        // arg; default = every populated board (~120 ms each).
+        char* a = strtok_r(NULL, " ,\t", &save);
+        int b0 = 0, b1 = NUM_BOARDS - 1;
+        if (a) {
+            int b = atoi(a);
+            if (b < 0 || b >= NUM_BOARDS) { replyErr("bad board"); return; }
+            b0 = b1 = b;
+        }
+        uint8_t mask = 0;
+        for (int b = b0; b <= b1; b++) {
+            if (!boardActive[b]) continue;
+            dac.reinit((uint8_t)b);
+            for (uint8_t ch = 0; ch < CH_PER_BOARD; ch++)
+                writeChannel((uint8_t)(b * CH_PER_BOARD + ch));
+            mask |= (uint8_t)(1 << b);
+        }
+        char buf[24];
+        snprintf(buf, sizeof(buf), "OK DACINIT 0x%02X", mask);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "CAL") == 0) {
+        // Run the AD7193 internal zero/full-scale calibration on demand (board b
+        // or all populated). configureBoard() forces the XTR200 front-ends off
+        // across the cal so no offset current biases the zero-scale point, then
+        // restores the prior enable state — same path used at boot/RESCAN.
+        char* a = strtok_r(NULL, " ,\t", &save);
+        int b0 = 0, b1 = NUM_BOARDS - 1;
+        if (a) {
+            int b = atoi(a);
+            if (b < 0 || b >= NUM_BOARDS) { replyErr("bad board"); return; }
+            b0 = b1 = b;
+        }
+        uint8_t mask = 0;
+        for (int b = b0; b <= b1; b++) {
+            if (!boardActive[b]) continue;
+            configureBoard((uint8_t)b);
+            mask |= (uint8_t)(1 << b);
+        }
+        char buf[24];
+        snprintf(buf, sizeof(buf), "OK CAL 0x%02X", mask);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "CALCLR") == 0) {
+        // Clear the user-run calibration: reset() reloads the AD7193's factory
+        // offset/full-scale registers (undoing any internal cal), then rewrite
+        // config/mode so RDY still works. Front-ends and DAC setpoints untouched.
+        // Use with CAL to A/B the calibrated vs uncalibrated zero-scale offset.
+        char* a = strtok_r(NULL, " ,\t", &save);
+        int b0 = 0, b1 = NUM_BOARDS - 1;
+        if (a) {
+            int b = atoi(a);
+            if (b < 0 || b >= NUM_BOARDS) { replyErr("bad board"); return; }
+            b0 = b1 = b;
+        }
+        uint8_t mask = 0;
+        for (int b = b0; b <= b1; b++) {
+            if (!boardActive[b]) continue;
+            adc.reset((uint8_t)b);            // → factory offset/full-scale defaults
+            writeBoardConfig((uint8_t)b);     // internal clock etc. (RDY hangs without)
+            mask |= (uint8_t)(1 << b);
+        }
+        char buf[24];
+        snprintf(buf, sizeof(buf), "OK CALCLR 0x%02X", mask);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "MISOPROBE") == 0) {
+        // Hardware bring-up: repeatedly read a board's ID register while pulsing
+        // ADC_EN, so GP4 (MISO)/GP2 (SCK)/GP5 (ADC_EN) can be scoped. Deliberately
+        // NOT gated on boardActive — the point is to probe when detection failed.
+        // Args: MISOPROBE <board> [durationMs]  (default 3000, capped 8000).
+        // The cap is the host's, not the hardware's: KoiLink.command() gives up
+        // after 10 s, and on timeout it drains and resends once — so a longer
+        // probe doesn't just time out, it silently runs a SECOND time. Repeat
+        // the command for a longer scope session.
+        char* a = strtok_r(NULL, " ,\t", &save);
+        char* d = strtok_r(NULL, " ,\t", &save);
+        if (!a) { replyErr("usage: MISOPROBE <board> [durationMs]"); return; }
+        int b = atoi(a);
+        if (b < 0 || b >= NUM_BOARDS) { replyErr("bad board"); return; }
+        uint32_t ms = d ? (uint32_t)strtoul(d, NULL, 0) : 3000u;
+        if (ms > 8000u) ms = 8000u;
+        adc.misoProbe((uint8_t)b, ms);       // '#'-framed diagnostics only
+        char buf[36];
+        snprintf(buf, sizeof(buf), "OK MISOPROBE %d %lu", b, (unsigned long)ms);
+        reply(buf);
+
+    } else if (strcasecmp(cmd, "ERR?") == 0) {
+        uint64_t raw = readErrorChain();
+        char buf[28];
+        // %llX is unreliable under Mbed's newlib-nano printf — print as two
+        // 32-bit halves.
+        snprintf(buf, sizeof(buf), "OK ERR 0x%08lX%08lX",
+                 (unsigned long)(raw >> 32), (unsigned long)(raw & 0xFFFFFFFFul));
         reply(buf);
 
     } else {
@@ -569,7 +820,11 @@ void setup() {
         calSlope[g]    = CAL_SLOPE_DEFAULT;
         calOffset[g]   = CAL_OFFSET_DEFAULT;
     }
-    for (uint8_t b = 0; b < NUM_BOARDS; b++) { efNow[b] = 0; efLatch[b] = 0; }
+
+    // SN74LV165 error-flag chain: PL idles high (shift mode), CP idles low.
+    pinMode(PIN_ERR_CP, OUTPUT); digitalWrite(PIN_ERR_CP, LOW);
+    pinMode(PIN_ERR_PL, OUTPUT); digitalWrite(PIN_ERR_PL, HIGH);
+    pinMode(PIN_ERR_Q7, INPUT);
 
     Serial.println();
     Serial.println("# KOI 8x8 current driver — host command interface");
@@ -589,13 +844,17 @@ void setup() {
     }
     Serial.println();
 
-    // Configure + calibrate each confirmed-present ADC.
+    // Front-ends start disabled (OD all HIGH) BEFORE any ADC calibration, so the
+    // AD7193 internal zero/full-scale cal runs with no XTR200 current flowing
+    // into the load. configureBoard() also enforces this per-board (for RESCAN),
+    // but bringing the 595 up first makes the boot cal explicitly clean.
+    xtr.begin();                                  // OD all HIGH = disabled
+
+    // Configure + calibrate each confirmed-present ADC (front-ends off).
     for (uint8_t b = 0; b < NUM_BOARDS; b++)
         if (boardActive[b]) configureBoard(b);
 
-    // Front-ends start disabled; load 0 mA everywhere before enabling.
-    xtr.begin();                                  // OD all HIGH = disabled
-    efChain.begin();
+    // Load 0 mA everywhere before enabling the front-ends.
     for (uint16_t g = 0; g < TOTAL_CH; g++) writeChannel(g);
 
     // Enable populated boards' front-ends (still 0 mA, so safe).
@@ -603,21 +862,6 @@ void setup() {
     for (uint8_t b = 0; b < NUM_BOARDS; b++)
         if (boardActive[b]) enMask |= (uint8_t)(1 << b);
     setEnableMask(enMask);
-
-    // First EF read, after the front ends settle. At 0 mA on an enabled board
-    // this should be all-clear; anything set here is a real standing fault (or
-    // a miswired chain), so report it rather than silently latching.
-    delay(10);
-    pollFaults();
-    uint64_t f = efPack(efLatch);
-    if (f) {
-        char fb[48];
-        snprintf(fb, sizeof(fb), "# EF FAULT at boot: 0x%08lX%08lX",
-                 (unsigned long)(f >> 32), (unsigned long)(f & 0xFFFFFFFFUL));
-        Serial.println(fb);
-    }
-    Serial.print("# EF chain valid boards: 0x");
-    Serial.println(efValidMask(), HEX);
 
     Serial.println("# READY");   // '#' so a host connecting mid-boot skips it
 }
@@ -638,14 +882,6 @@ void loop() {
             lineLen = 0;
             replyErr("line too long");
         }
-    }
-
-    // Background fault sweep. Cheap (~0.5 ms of bit-banging on a private bus,
-    // so it disturbs neither SPI bank) and fast enough that a channel is cut
-    // within ~20 ms of the XTR200 raising EF.
-    if (millis() - faultLast >= FAULT_POLL_MS) {
-        faultLast = millis();
-        pollFaults();
     }
 
     // Optional eyeball stream (debug only; prefixed '#' so the host can ignore).

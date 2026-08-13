@@ -104,6 +104,15 @@ public:
      */
     bool begin();
 
+    /**
+     * Re-run one device's full configuration mid-session: soft reset, then
+     * SYNC / CONFIG (external ref, double-written) / GAIN. Recovery path for a
+     * DAC that browned out back to its internal-2.5V-reference defaults — the
+     * bus is write-only, so rewriting is the only possible fix. Outputs are at
+     * zero scale afterwards; the caller reloads the channel setpoints.
+     */
+    void reinit(uint8_t device);
+
     /** Write a register on a single device (0 = decoder CS1). */
     void writeRegister(uint8_t device, uint8_t addr, uint16_t data);
 
@@ -122,9 +131,6 @@ public:
      * Set a DAC channel output voltage (0 to VREF).
      */
     void setVoltage(uint8_t device, uint8_t channel, float voltage);
-
-    uint8_t getNumDevices() const { return _numDevices; }
-    float   getVref() const { return _vref; }
 
     /** Convert 16-bit DAC code to voltage. */
     static float codeToVoltage(uint16_t code, float vref);

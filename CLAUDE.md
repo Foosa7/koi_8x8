@@ -52,8 +52,11 @@ make clean
 
 ## Cross-cutting facts
 
-- The device identifies as `KOI,8x8,fw1.1` (formerly `MOBO`); "device index" =
-  daughterboard, global channel index `g = board*8 + channel` (0–63).
+- The device identifies as `KOI,8x8,fw1.3` (formerly `MOBO`); "device index" =
+  daughterboard, global channel index `g = board*8 + channel` (0–63). Bump the
+  `*IDN?` string whenever firmware behaviour changes — the boot banner is
+  byte-identical across builds, so it is the only way to tell which binary is
+  actually running.
 - Firmware reports the **raw ADC-pin voltage**; the host applies the 6:1 input
   divider (×6) to get the true heater voltage. This convention spans firmware,
   the GUI, and the paper — keep them consistent.

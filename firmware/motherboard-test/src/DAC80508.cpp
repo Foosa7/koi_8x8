@@ -84,6 +84,23 @@ bool DAC80508::begin() {
 }
 
 // ═════════════════════════════════════════════════════════
+// Mid-session reconfigure of one device (see header)
+// ═════════════════════════════════════════════════════════
+void DAC80508::reinit(uint8_t device) {
+    writeRegister(device, DAC80508_REG_TRIGGER, DAC80508_TRIG_SOFT_RST);
+    delay(100);   // same post-reset margin begin() uses
+    writeRegister(device, DAC80508_REG_SYNC, DAC80508_BRDCAST_ALL);
+    delay(5);
+    // External ref, double-written so REF_PWDWN reliably takes (write-only bus).
+    writeRegister(device, DAC80508_REG_CONFIG, DAC80508_CFG_REF_PWDWN);
+    delay(5);
+    writeRegister(device, DAC80508_REG_CONFIG, DAC80508_CFG_REF_PWDWN);
+    delay(5);
+    writeRegister(device, DAC80508_REG_GAIN, DAC80508_GAIN_ALL_2X);
+    delay(5);
+}
+
+// ═════════════════════════════════════════════════════════
 // Register writes
 // ═════════════════════════════════════════════════════════
 void DAC80508::writeRegister(uint8_t device, uint8_t addr, uint16_t data) {

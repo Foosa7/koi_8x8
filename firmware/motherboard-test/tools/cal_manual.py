@@ -28,9 +28,11 @@ Usage:
 
 import argparse
 import csv
+import os
 import sys
 import time
 
+from koi_bench import bench_outdir
 from koi_gui import KoiLink, autodetect_port, DEFAULT_BAUD, MAX_CURRENT_MA
 
 
@@ -95,7 +97,8 @@ def main():
     print(link.command("*IDN?") or "(no IDN reply)")
     link.command("XTR 255")            # all front-ends enabled
 
-    out_path = args.out or f"cal_manual_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+    out_path = args.out or os.path.join(
+        bench_outdir(), f"cal_manual_{time.strftime('%Y%m%d_%H%M%S')}.csv")
     rows = []  # (channel, cmd_mA, meas_mA)
 
     print(f"\nchannels: {channels}")

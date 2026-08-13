@@ -31,12 +31,8 @@ public:
     /** Deassert the enable — all of this decoder's CS lines go HIGH. */
     void deselect();
 
-    /** DEBUG: flip enable polarity (true = drive LOW to enable). */
-    void setEnableActiveLow(bool v);
-
 private:
     uint8_t _a0, _a1, _a2, _en;
-    bool    _enActiveLow = true;
     void _setAddress(uint8_t y);
 };
 

@@ -174,30 +174,28 @@ public:
      * channels successfully captured. Much faster than nChan single
      * conversions — it pays the filter settling per channel but NOT the
      * per-conversion stop/restart overhead of single mode. `baseConf` supplies
-     * the non-channel CONF bits (pseudo/ref/unipolar/buf/gain); the channel
-     * bits are replaced internally. `rate` is the filter word (FS).
+     * the non-channel CONF bits (pseudo/ref/unipolar/buf/gain/chop); the channel
+     * bits are replaced internally. `rate` is the filter word (FS). `modeFlags`
+     * supplies the clock source and any SINC3/REJ60 filter bits (if no clock-
+     * source bit is set it defaults to the internal clock).
      */
     uint8_t scanContinuous(uint8_t device, uint32_t baseConf, uint16_t rate,
-                           uint8_t nChan, uint32_t* codes);
+                           uint8_t nChan, uint32_t* codes, uint32_t modeFlags = 0);
 
     /** Read data register (3 bytes). */
     uint32_t readData(uint8_t device);
 
-    /** Start continuous conversion mode. */
-    void startContinuousConversion(uint8_t device, uint32_t channelMask,
-                                    uint8_t gain = AD7193_CONF_GAIN_1,
-                                    bool unipolar = true,
-                                    uint16_t rate = 96);
-
-    /** Read all devices, polling status register for each. */
-    uint8_t readAllDevices(uint32_t data[AD7193_NUM_DEVICES],
-                           uint8_t status[AD7193_NUM_DEVICES]);
-
     void calibrateInternalZero(uint8_t device);
     void calibrateInternalFull(uint8_t device);
 
-    /** Scan all 8 SR output positions and print which ones have an ADC. */
-    void diagnosticScan();
+    /** Hardware bring-up probe for scoping the SPI0 read path (MISO=GP4).
+     *  For `durationMs`, repeatedly select `device` (ADC_EN pulses low), clock a
+     *  real ID-register read, and capture the returned bytes — giving a steady,
+     *  scope-triggerable waveform on ADC_EN / SCK / MISO. Prints a '#'-framed
+     *  summary (iterations, OR of all MISO bytes, non-zero count, first samples)
+     *  so a floating/stuck MISO (all 0x00, occasional 0xFF) is visible without a
+     *  scope too. Diagnostic only — does not touch config/cal. */
+    void misoProbe(uint8_t device, uint32_t durationMs);
 
     /** Enable/disable runtime diagnostic prints (WARN/timeout). Default OFF so
      *  they never corrupt the host command protocol's one-line replies. */

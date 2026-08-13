@@ -320,19 +320,22 @@ bool AD7193Driver::probeConversion(uint8_t device, uint32_t channelMask,
 
 uint8_t AD7193Driver::scanContinuous(uint8_t device, uint32_t baseConf,
                                      uint16_t rate, uint8_t nChan,
-                                     uint32_t* codes) {
+                                     uint32_t* codes, uint32_t modeFlags) {
     if (device >= AD7193_NUM_DEVICES || nChan == 0 || nChan > 8) return 0;
 
-    // Enable the nChan lowest channels (AIN1..AINn) for the sequencer.
+    // Enable the nChan lowest channels (AIN1..AINn) for the sequencer. baseConf
+    // carries the gain / CHOP / ref / buffer bits (channel bits replaced here).
     uint32_t chanMask = 0;
     for (uint8_t c = 0; c < nChan; c++) chanMask |= AD7193_CONF_CHAN(c);
     confReg[device] = (baseConf & ~AD7193_CONF_CHAN_MASK) | chanMask;
     writeRegister(device, AD7193_REG_CONF, confReg[device]);
 
     // Continuous conversion + DAT_STA (status appended to each DATA read so the
-    // sample is self-identifying), internal clock, requested filter rate.
+    // sample is self-identifying). modeFlags supplies the clock source + any
+    // SINC3/REJ60 filter bits (defaults to internal clock if none given).
+    if (!(modeFlags & (3UL << 18))) modeFlags |= AD7193_MODE_CLKSRC_INT;
     modeReg[device] = AD7193_MODE_CONT | AD7193_MODE_DAT_STA |
-                      AD7193_MODE_CLKSRC_INT | AD7193_MODE_RATE(rate);
+                      modeFlags | AD7193_MODE_RATE(rate);
     writeRegister(device, AD7193_REG_MODE, modeReg[device]);
 
     uint8_t gotMask = 0;
@@ -365,8 +368,7 @@ uint8_t AD7193Driver::scanContinuous(uint8_t device, uint32_t baseConf,
     }
 
     // Stop converting and clear DAT_STA so later 3-byte DATA reads stay aligned.
-    modeReg[device] = AD7193_MODE_IDLE | AD7193_MODE_CLKSRC_INT |
-                      AD7193_MODE_RATE(rate);
+    modeReg[device] = AD7193_MODE_IDLE | modeFlags | AD7193_MODE_RATE(rate);
     writeRegister(device, AD7193_REG_MODE, modeReg[device]);
 
     return gotMask;
@@ -379,72 +381,6 @@ uint8_t AD7193Driver::scanContinuous(uint8_t device, uint32_t baseConf,
 
 uint32_t AD7193Driver::readData(uint8_t device) {
     return readRegister(device, AD7193_REG_DATA);
-}
-
-
-// ============================================================================
-// Continuous Conversion
-// ============================================================================
-
-void AD7193Driver::startContinuousConversion(uint8_t device, uint32_t channelMask,
-                                              uint8_t gain, bool unipolar,
-                                              uint16_t rate) {
-    if (device >= AD7193_NUM_DEVICES) return;
-
-    // Configure channels and gain. BUF stays cleared — the external OPA2333
-    // followers (U13-U16) buffer the ADC inputs; enabling the internal buffer
-    // costs AGND+250 mV of input range and reintroduces the ~3 mV offset.
-    confReg[device] &= ~(AD7193_CONF_CHAN_MASK | AD7193_CONF_GAIN_MASK | AD7193_CONF_BUF);
-    confReg[device] |= (channelMask & AD7193_CONF_CHAN_MASK);
-    confReg[device] |= AD7193_CONF_PSEUDO;
-    confReg[device] |= (gain & AD7193_CONF_GAIN_MASK);
-    if (unipolar) {
-        confReg[device] |= AD7193_CONF_UNIPOLAR;
-    } else {
-        confReg[device] &= ~AD7193_CONF_UNIPOLAR;
-    }
-    writeRegister(device, AD7193_REG_CONF, confReg[device]);
-
-    // Set continuous mode with status appended
-    modeReg[device] = (modeReg[device] & ~(AD7193_MODE_SEL_MASK | 0x3FF));
-    modeReg[device] |= AD7193_MODE_CONT | AD7193_MODE_DAT_STA | AD7193_MODE_RATE(rate);
-    writeRegister(device, AD7193_REG_MODE, modeReg[device]);
-}
-
-
-uint8_t AD7193Driver::readAllDevices(uint32_t data[AD7193_NUM_DEVICES],
-                                      uint8_t status[AD7193_NUM_DEVICES]) {
-    uint8_t count = 0;
-
-    for (uint8_t i = 0; i < _numDevices; i++) {
-        data[i] = 0;
-        status[i] = 0xFF;
-
-        // Check status register
-        uint8_t st = (uint8_t)readRegister(i, AD7193_REG_STATUS);
-        if (!(st & AD7193_STAT_RDY)) {
-            // Data ready — read 4 bytes (data + status when DAT_STA enabled)
-            _selectDevice(i);
-
-            _spi->beginTransaction(SPI_SETTINGS);
-            _spi->transfer(_commByte(AD7193_REG_DATA, true));
-
-            uint32_t raw = 0;
-            raw |= (uint32_t)_spi->transfer(0x00) << 24;
-            raw |= (uint32_t)_spi->transfer(0x00) << 16;
-            raw |= (uint32_t)_spi->transfer(0x00) << 8;
-            raw |= (uint32_t)_spi->transfer(0x00);
-
-            _spi->endTransaction();
-            _deselectAll();
-
-            data[i] = (raw >> 8) & 0xFFFFFF;
-            status[i] = raw & 0xFF;
-            count++;
-        }
-    }
-
-    return count;
 }
 
 
@@ -487,36 +423,64 @@ void AD7193Driver::calibrateInternalFull(uint8_t device) {
 
 
 // ============================================================================
-// Diagnostic: Scan all 8 decoder (74HC138) positions
+// Diagnostic: MISO scope probe (SPI0 read-path bring-up)
 // ============================================================================
+//
+// Repeats a real ID-register read on `device` for `durationMs`, pulsing ADC_EN
+// low each iteration. Put a scope on GP4 (MISO), GP2 (SCK), GP5 (ADC_EN) and the
+// selected 74HC138 CS output: a healthy ADC drives the ID value (lower nibble
+// 0x2) onto MISO during the read byte; a floating/disconnected MISO reads 0x00
+// with the occasional 0xFF, and a never-asserted CS reads a constant.
+void AD7193Driver::misoProbe(uint8_t device, uint32_t durationMs) {
+    Serial.print("# [MISOPROBE] device="); Serial.print(device);
+    Serial.print(" duration="); Serial.print(durationMs);
+    Serial.println(" ms — pulsing ADC_EN, reading ID reg. Scope GP4/GP2/GP5 now.");
 
-void AD7193Driver::diagnosticScan() {
-    Serial.println("\n# [DIAG] Scanning all 8 decoder positions...");
-    Serial.println("#   Idx  CS    ID      Result");
-    Serial.println("#   ---  ----  ------  ------");
+    const uint8_t comm = _commByte(AD7193_REG_ID, true);
+    uint32_t iters = 0, nonzero = 0;
+    uint8_t orAll = 0x00, andAll = 0xFF;
+    uint8_t sample[16];
+    uint8_t nSample = 0;
 
-    for (uint8_t d = 0; d < AD7193_NUM_DEVICES; d++) {
-        _select->selectDevice(d);
+    uint32_t start = millis();
+    while (millis() - start < durationMs) {
+        _selectDevice(device);           // ADC_EN low, address = 8-1-device
         delayMicroseconds(5);
 
         _spi->beginTransaction(SPI_SETTINGS);
-        _spi->transfer(_commByte(AD7193_REG_ID, true));
-        uint8_t id = _spi->transfer(0x00);
+        _spi->transfer(comm);            // clock the ID read command out on MOSI
+        uint8_t id = _spi->transfer(0x00);   // MISO carries the ID here (if alive)
         _spi->endTransaction();
 
-        _select->deselect();
+        _deselectAll();                  // ADC_EN high → visible falling/rising edges
 
-        Serial.print("#   ");
-        Serial.print(d);
-        Serial.print("    CS");
-        Serial.print(d + 1);
-        Serial.print("   0x");
-        Serial.print(id, HEX);
+        orAll |= id;
+        andAll &= id;
+        if (id != 0x00) nonzero++;
+        if (nSample < sizeof(sample)) sample[nSample++] = id;
+        iters++;
 
-        bool valid = ((id & AD7193_ID_MASK) == AD7193_ID_VALUE);
-        Serial.println(valid ? "    << AD7193 FOUND" : "");
+        delayMicroseconds(50);           // gap so ADC_EN toggles are easy to trigger on
+    }
+
+    Serial.print("# [MISOPROBE] iters="); Serial.print(iters);
+    Serial.print(" nonzero="); Serial.print(nonzero);
+    Serial.print(" OR=0x");   Serial.print(orAll, HEX);
+    Serial.print(" AND=0x");  Serial.print(andAll, HEX);
+    Serial.print(" expect lower nibble 0x2 (full byte 0x82/0xA2 typ — the upper "
+                 "nibble is silicon revision). first: ");
+    for (uint8_t i = 0; i < nSample; i++) {
+        Serial.print("0x"); Serial.print(sample[i], HEX); Serial.print(' ');
     }
     Serial.println();
+
+    if (orAll == 0x00)
+        Serial.println("# [MISOPROBE] MISO stuck 0x00 all reads — SPI0 read path dead "
+                       "(GP4 open, or ADC CS never asserted / 74HC138 disabled).");
+    else if ((orAll & AD7193_ID_MASK) == AD7193_ID_VALUE && orAll == andAll)
+        Serial.println("# [MISOPROBE] MISO returns a valid ID — SPI0 read path OK.");
+    else
+        Serial.println("# [MISOPROBE] MISO noisy/inconsistent — floating line or marginal contact.");
 }
 
 

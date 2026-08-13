@@ -41,6 +41,20 @@ The table is applied to the I/R/P columns and to Characterize R, and persists
 in offset_table.json (auto-loaded at startup). Channels that read railed
 (no load fitted → compliance rail) are skipped, not poisoned into the table.
 
+Error flags: each poll cycle also snapshots the 64 XTR200 ERRORFLAG pins
+(`ERR?`, via the daisy-chained SN74LV165s). A faulting channel — compliance
+rail, open load at current — turns red with an "EF!" tag, and the control bar
+lists all faulted channels. Flags of unpopulated boards are ignored (a missing
+board breaks the 165 chain, so those bits are garbage). Old firmware without
+ERR? just shows "EF: n/a".
+
+DAC-reference watchdog: a populated channel commanded to 0 mA but reading
+> 1 V raw means that board's DAC browned out back to its internal 2.5 V
+reference (write-only bus — the firmware can't detect it). The GUI auto-sends
+`DACINIT <b>` (soft reset, external ref, gain, setpoint reload), rate-limited
+and capped at 3 tries per episode; the "DAC init" button does all boards
+manually.
+
 Each cell also has a current setpoint box (mA): type a value and press Enter to
 drive that channel (sends `ISET g mA`). "Apply all"/"Zero all" set every channel
 at once (`ISETA`). The firmware converts mA → DAC code via the XTR200 relation
@@ -63,7 +77,7 @@ import re
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import serial
 import serial.tools.list_ports
@@ -78,6 +92,20 @@ try:
     HAVE_PLOT = True
 except ImportError:
     HAVE_PLOT = False
+
+# Optional: the Bench row (paper validation runs against a Keithley 2100) needs
+# both the bench routines and the USBTMC driver. Without them the row is built
+# but disabled, rather than the whole GUI failing to start on a machine with no
+# meter attached.
+try:
+    import koi_bench
+    from keithley2100 import Keithley2100, autodetect_usbtmc
+    koi_bench.Keithley2100 = Keithley2100
+    koi_bench.autodetect_dmm = autodetect_usbtmc
+    HAVE_BENCH = True
+except ImportError:
+    koi_bench = None
+    HAVE_BENCH = False
 
 NUM_BOARDS = 8
 CH_PER_BOARD = 8
@@ -105,6 +133,30 @@ DIVIDER_BOTTOM_OHMS = 20000.0
 # Per-channel XTR200 offset-current table (mA), built by "Cal offsets" and
 # auto-loaded at startup. Lives in the working directory next to the sweep CSVs.
 OFFSET_TABLE_FILE = "offset_table.json"
+
+# Per-channel MEASURE-side voltage offset (raw ADC volts), built by "Capture
+# zeros" and auto-loaded at startup. The AD7193's internal zero/full-scale
+# calibration runs with channel 0 (AIN1) selected, so its shared offset register
+# nulls channel 0; channels 1..7 carry their own small ADC mux-path offset
+# (bench: ~0.2..1.4 mV = a few mV heater-referred after the divider). This table
+# captures each channel's 0 mA baseline and subtracts it in the display so every
+# channel reads ~0 at zero drive. Complementary to the current-side offset table.
+VZERO_TABLE_FILE = "vzero_table.json"
+# A channel reading above this at zero drive wasn't actually at zero (left
+# driven / faulted) → skip it, don't poison the table with a real signal.
+VZERO_MAX_V = 0.010
+
+# XTR200 ERRORFLAG polarity as seen by the SN74LV165 chain (`ERR?` reports the
+# raw pin level): EF is open-drain with an on-board pullup, so 1 = OK and
+# 0 = fault. Flip this if a board revision buffers/inverts the flag.
+ERRFLAG_ACTIVE_LOW = True
+
+# DAC-lost-its-reference signature (bench-observed): a populated channel
+# commanded to 0 mA reads way above zero — the board's DAC browned out back to
+# its internal 2.5 V reference (write-only bus, so the firmware can't see it).
+# A legit 0 mA reading is only the µA-scale IOS × load ≈ single mV, so >1 V raw
+# is unambiguous. The GUI auto-sends `DACINIT <b>` to rewrite the config.
+DAC_FAULT_RAW_V = 1.0
 #   Vdac = I[A] × RSET / GAIN   →   I_max at Vdac=VREF:
 MAX_CURRENT_MA = (XTR_GAIN * DAC_VREF / XTR_RSET) * 1e3   # ≈ 6.383 mA
 
@@ -262,6 +314,41 @@ class KoiLink:
         parts = line.split()
         return parts[-1] == "1" if parts else None
 
+    def error_flags(self):
+        """Snapshot all 64 XTR200 ERRORFLAG pins (`ERR?`, via the SN74LV165
+        chain). Returns the raw 64-bit level word (bit g = channel g's EF pin
+        level; the CALLER applies polarity and masks unpopulated boards —
+        a missing board breaks the chain, so its upstream bits are garbage).
+        None if the firmware didn't answer; False if it doesn't know the
+        command (pre-errorflag firmware)."""
+        line = self.command("ERR?")
+        if line is None:
+            return None
+        if line.startswith("ERR"):
+            return False
+        try:
+            return int(line.split()[-1], 16)
+        except ValueError:
+            return None
+
+    def adc_settings(self):
+        """Query the live AD7193 sampling settings (`ADC?`). Returns a dict
+        {rate, avg, gain, chop, filter, rej60} parsed from the firmware's
+        'OK ADC rate=.. avg=.. gain=.. chop=.. filter=.. rej60=..' reply, or
+        None if the firmware didn't answer / doesn't know the command (older
+        build) so the GUI can leave its controls at their defaults."""
+        line = self.command("ADC?")
+        if not line or line.startswith("ERR"):
+            return None
+        out = {}
+        for tok in line.split():
+            if "=" in tok:
+                k, _, v = tok.partition("=")
+                out[k] = v
+        if "rate" not in out:
+            return None
+        return out
+
     def close(self):
         try:
             self.ser.close()
@@ -286,6 +373,13 @@ class Poller(threading.Thread):
         self._char_lock = threading.Lock()
         self._offcal = None         # pending offset-table cal params, or None
         self._offcal_lock = threading.Lock()
+        self._vzero = None          # pending measure-side zero-offset capture
+        self._vzero_lock = threading.Lock()
+        self._bench = None          # pending bench measurement (key, params)
+        self._bench_lock = threading.Lock()
+        self._bench_abort = threading.Event()
+        self.dmm = None             # Keithley2100, opened on this thread only
+                                    # (USBTMC node has a single owner)
         self._rescan_req = True     # start with a firmware re-detect: recovers
                                     # boards the boot-time scan missed (flaky
                                     # HASL contact) without a manual click
@@ -293,6 +387,8 @@ class Poller(threading.Thread):
         self._grid = [float("nan")] * TOTAL_CH   # persistent last-known grid
         self._expected_mask = 0     # boards adopted from the last good RESCAN
         self._auto_rescan_last = 0.0   # rate-limit for automatic re-detects
+        self._err_supported = True  # cleared if the firmware lacks ERR?
+        self._adc_synced = False    # ADC? settings pulled into the GUI once
 
     def request_sweep(self, channel, imax, step, settle):
         """Queue a sweep to run inline on this thread (keeps serial single-owner)."""
@@ -327,6 +423,70 @@ class Poller(threading.Thread):
             o = self._offcal
             self._offcal = None
             return o
+
+    def request_vzero_cal(self, params):
+        """Queue a per-channel measure-side zero-offset capture (runs inline)."""
+        with self._vzero_lock:
+            self._vzero = params
+
+    def _take_vzero_cal(self):
+        with self._vzero_lock:
+            v = self._vzero
+            self._vzero = None
+            return v
+
+    def request_bench(self, key, params):
+        """Queue a bench measurement (runs inline on this thread, so the Koi
+        serial port and the DMM both keep a single owner)."""
+        self._bench_abort.clear()
+        with self._bench_lock:
+            self._bench = (key, params)
+
+    def _take_bench(self):
+        with self._bench_lock:
+            b = self._bench
+            self._bench = None
+            return b
+
+    def abort_bench(self):
+        self._bench_abort.set()
+
+    def _run_bench(self, key, params):
+        """Run one koi_bench routine, with the grid poll suspended for the
+        duration: the poll's MEASA? traffic and the DAC-brownout watchdog would
+        both fight a measurement that is deliberately holding a setpoint."""
+        if koi_bench is None:
+            self.q.put(("bench_done", (key, None, "koi_bench.py not importable")))
+            return
+        try:
+            if self.dmm is None:
+                node = koi_bench.autodetect_dmm()
+                if node is None:
+                    raise RuntimeError("no /dev/usbtmc* — is the 2100 connected? "
+                                       "(see tools/setup_usbtmc.md)")
+                self.dmm = koi_bench.Keithley2100(node)
+                self.q.put(("info", f"DMM: {self.dmm.idn()}"))
+
+            fn = dict((k, f) for k, _, f, _ in koi_bench.MEASUREMENTS)[key]
+            ctx = koi_bench.BenchCtx(
+                link=self.link, dmm=self.dmm,
+                channel=params["ch"], r_load=params["r_load"],
+                r_source=params.get("r_source", "typed"),
+                outdir=params["outdir"], settle=params["settle"],
+                xtr_mask=params.get("xtr_mask", 0x01),
+                emit=lambda s: self.q.put(("bench_progress", s)),
+                stopped=self._bench_abort.is_set)
+            out = fn(ctx, **params.get("kwargs", {}))
+            path, summary = out[0], out[1]
+            extra = out[2] if len(out) > 2 else None
+            self.q.put(("bench_done", (key, path, summary, extra)))
+        except Exception as e:
+            # Never leave the channel driven because a measurement raised.
+            try:
+                self.link.command(f"ISET {params['ch']} 0")
+            except Exception:
+                pass
+            self.q.put(("bench_done", (key, None, f"{type(e).__name__}: {e}")))
 
     def request_rescan(self):
         """Ask the poller to run a firmware RESCAN inline (on a quiet bus)."""
@@ -364,6 +524,13 @@ class Poller(threading.Thread):
                 self._grid[lo:lo + CH_PER_BOARD] = [float("nan")] * CH_PER_BOARD
         self.q.put(("data", self._grid[:]))
         self.q.put(("rescan_done", mask))
+        # First good connect: mirror the device's live sampling settings into the
+        # GUI controls (so they show the real state, not just the defaults).
+        if not self._adc_synced:
+            settings = self.link.adc_settings()
+            self._adc_synced = True        # don't clobber later user edits on reconnect
+            if settings:
+                self.q.put(("adc_settings", settings))
 
     def _drain_commands(self):
         """Send any queued GUI commands (keeps all serial I/O on this thread)."""
@@ -392,7 +559,15 @@ class Poller(threading.Thread):
                 offcal = self._take_offset_cal()
                 if offcal is not None:
                     self._run_offset_cal(offcal)   # inline, single serial owner
+                vzero = self._take_vzero_cal()
+                if vzero is not None:
+                    self._run_vzero_cal(vzero)     # inline, single serial owner
+                bench = self._take_bench()
+                if bench is not None:
+                    self._run_bench(*bench)        # inline; poll stays suspended
+                    continue                       # skip this cycle's poll
                 self._poll_once()
+                self._poll_errflags()
             except Exception as e:  # serial dropout, etc.
                 self.q.put(("error", str(e)))
                 try:
@@ -451,6 +626,20 @@ class Poller(threading.Thread):
             else:
                 self._maybe_auto_rescan(f"board {b}: no valid MEASA? reply")
         self.q.put(("data", self._grid[:]))
+
+    def _poll_errflags(self):
+        """Piggyback one ERR? per poll cycle (a single fast round-trip — the
+        165 chain is bit-banged, no ADC involvement). Old firmware answers
+        'ERR unknown command'; disable further queries instead of resending a
+        dead command every cycle."""
+        if not self._err_supported:
+            return
+        flags = self.link.error_flags()
+        if flags is False:
+            self._err_supported = False
+            self.q.put(("info", "firmware has no ERR? — reflash for error flags"))
+        elif flags is not None:
+            self.q.put(("errflags", flags))
 
     def _run_sweep(self, channel, imax, step, settle):
         """Step current 0..imax on `channel`, read raw_V via MEASA?, log CSV, fit."""
@@ -629,6 +818,62 @@ class Poller(threading.Thread):
             err = f"save: {e}"
         self.q.put(("offcal_done", (ios_ma, used, skipped, path, err)))
 
+    def _run_vzero_cal(self, p):
+        """Capture each channel's zero-current ADC baseline as a per-channel
+        measure-side voltage offset. Disables all drive first (`*RST` → currents
+        0 AND front-ends off) so the reading is the pure ADC/divider offset — the
+        XTR200 IOS is a current-side term handled by the offset-current table, so
+        it must NOT be folded in here. Averages a few full scans and stores raw
+        volts per channel, THEN re-enables the front-ends (else the next drive
+        command produces no output). A channel still above VZERO_MAX_V wasn't
+        actually at zero (left driven / faulted) → skipped, left at 0 rather than
+        poisoning the table with a real signal."""
+        settle = p["settle"]
+        navg   = 5
+
+        self.link.command("*RST")               # currents 0 + front-ends off
+        self._stop.wait(settle)
+        acc = [0.0] * TOTAL_CH
+        cnt = [0] * TOTAL_CH
+        for _ in range(navg):
+            if self._stop.is_set():
+                break
+            vals = self.link.measure_all()
+            if vals:
+                for g, v in enumerate(vals):
+                    if v == v:
+                        acc[g] += v
+                        cnt[g] += 1
+
+        # *RST disabled every front-end; re-enable the populated boards so the
+        # board returns to its normal operating state (drive-ready, currents 0).
+        mask = 0
+        for b in (self.active_boards if self.active_boards else range(NUM_BOARDS)):
+            mask |= (1 << b)
+        self.link.command(f"XTR 0x{mask:02X}")
+
+        vzero_v = [0.0] * TOTAL_CH
+        used, skipped = [], []
+        for g in range(TOTAL_CH):
+            if not cnt[g]:
+                continue                          # absent board → no entry
+            raw = acc[g] / cnt[g]
+            if abs(raw) > VZERO_MAX_V:
+                skipped.append(g)
+                continue
+            vzero_v[g] = raw
+            used.append(g)
+
+        path = os.path.join(os.getcwd(), VZERO_TABLE_FILE)
+        err = None
+        try:
+            with open(path, "w") as f:
+                json.dump({"created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                           "vzero_v": vzero_v}, f, indent=1)
+        except Exception as e:
+            err = f"save: {e}"
+        self.q.put(("vzero_done", (vzero_v, used, skipped, path, err)))
+
     @staticmethod
     def _export_plot(path, ch, x, y, lin, cub):
         xf = np.linspace(x.min(), x.max(), 200)
@@ -693,6 +938,46 @@ def linfit(xs, ys):
     return m, b, r2
 
 
+class _Tooltip:
+    """Hover text for the bench buttons — the row is dense and each button
+    starts a multi-minute run, so what one does needs to be legible first."""
+
+    def __init__(self, widget, text, delay=450):
+        self.widget, self.text, self.delay = widget, text, delay
+        self._after = None
+        self._win = None
+        widget.bind("<Enter>", self._schedule)
+        widget.bind("<Leave>", self._hide)
+        widget.bind("<ButtonPress>", self._hide)
+
+    def _schedule(self, _ev=None):
+        self._cancel()
+        self._after = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self._after:
+            self.widget.after_cancel(self._after)
+            self._after = None
+
+    def _show(self):
+        if self._win:
+            return
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._win = tk.Toplevel(self.widget)
+        self._win.wm_overrideredirect(True)
+        self._win.wm_geometry(f"+{x}+{y}")
+        tk.Label(self._win, text=self.text, justify="left",
+                 background="#ffffe0", relief="solid", borderwidth=1,
+                 wraplength=420, padx=6, pady=3).pack()
+
+    def _hide(self, _ev=None):
+        self._cancel()
+        if self._win:
+            self._win.destroy()
+            self._win = None
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # GUI
 # ──────────────────────────────────────────────────────────────────────────
@@ -706,7 +991,9 @@ class App(tk.Tk):
         self.sweep_active = False
         self.char_active = False
         self.offcal_active = False
+        self.vzero_active = False
         self.ios_ma = [0.0] * TOTAL_CH    # per-channel XTR offset current (mA)
+        self.vzero_v = [0.0] * TOTAL_CH   # per-channel measure-side V offset (raw V)
         self.divider = tk.DoubleVar(value=divider)
         self.offset_mv = tk.DoubleVar(value=offset_mv)   # ADC zero-offset (added back)
         self.interval = interval
@@ -714,6 +1001,36 @@ class App(tk.Tk):
         self.sweep_settle = 0.4           # s settle per sweep point
         self._last_update_t = None
         self.setpoint_ma = [0.0] * TOTAL_CH
+        self.errflags = None              # raw 64-bit ERR? word (None = unknown)
+        self._dacinit_state = {}          # board → (last_send_t, strikes)
+        self.xtr_enabled = True           # front-ends on/off (XTR-off diagnostic)
+        self.bench_active = None          # key of the running bench measurement
+
+        # Bench row (paper validation against the Keithley 2100). R load starts
+        # blank on purpose: it must come from the 4-wire button, not a typed
+        # constant — a stale hand-entered value is what invalidated the first
+        # characterization campaign.
+        self.bench_ch = tk.StringVar(value="0")
+        self.bench_r = tk.StringVar(value="")
+        self.bench_settle = tk.StringVar(value="0.8")
+        self.bench_outdir = tk.StringVar(
+            value=os.path.join("bench", time.strftime("%Y%m%d")))
+        self.bench_r_source = "typed"
+
+        # AD7193 sampling settings (mirror the firmware defaults; refreshed from
+        # the device's ADC? reply once connected). Changing a control sends the
+        # matching command — RATE/AVG/FILTER/REJ60 are cheap; GAIN/CHOP trigger a
+        # per-board recalibration in firmware (a few seconds).
+        self.adc_rate = tk.StringVar(value="16")
+        self.adc_avg = tk.StringVar(value="4")
+        self.adc_gain = tk.StringVar(value="1")
+        self.adc_filter = tk.StringVar(value="SINC4")
+        self.adc_chop = tk.BooleanVar(value=False)
+        self.adc_rej60 = tk.BooleanVar(value=False)
+        self.adc_bipolar = tk.BooleanVar(value=False)
+        # AD7193 input buffer (fw1.3). Default ON — the only setting valid with
+        # the 6:1 divider in front of the pin; see apply_buf().
+        self.adc_buf = tk.BooleanVar(value=True)
 
         self.title("Koi 8x8 — channel monitor")
         self.configure(padx=10, pady=10)
@@ -722,6 +1039,7 @@ class App(tk.Tk):
         self._build_controls()
         self._build_grid()
         self._load_offset_table()
+        self._load_vzero_table()
 
         self.after(30, self._drain_queue)
         self.start_polling()
@@ -754,8 +1072,15 @@ class App(tk.Tk):
         self.status = ttk.Label(bar, text="connecting…")
         self.status.pack(side="left")
 
+        # XTR200 error-flag summary (fed by the per-cycle ERR? snapshot).
+        self.ef_lbl = ttk.Label(bar, text="EF: n/a", foreground="#777")
+        self.ef_lbl.pack(side="left", padx=(12, 0))
+
         ttk.Button(bar, text="Pause", command=self.toggle).pack(side="right")
         ttk.Button(bar, text="Rescan", command=self.rescan).pack(side="right", padx=(0, 6))
+        ttk.Button(bar, text="DAC init", command=self.dac_init).pack(side="right", padx=(0, 6))
+        self.xtr_btn = ttk.Button(bar, text="XTR off", command=self.toggle_xtr)
+        self.xtr_btn.pack(side="right", padx=(0, 6))
 
         # Second row: calibration sweep (logs raw_V vs I to CSV, fits gain/offset).
         bar2 = ttk.Frame(self)
@@ -819,12 +1144,122 @@ class App(tk.Tk):
         self.offtab_lbl = ttk.Label(bar4, text="offsets: none", foreground="#777")
         self.offtab_lbl.pack(side="left")
 
+        # Fifth row: per-channel MEASURE-side zero-offset (voltage). Captures each
+        # channel's 0 mA ADC baseline and subtracts it in the display, so every
+        # channel reads ~0 at zero drive — removes the per-channel ADC mux-path
+        # offset the single-channel internal calibration leaves on channels 1..7.
+        bar5 = ttk.Frame(self)
+        bar5.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(bar5, text="Measure zero-offset:").pack(side="left")
+        ttk.Button(bar5, text="Capture zeros",
+                   command=self.start_vzero_cal).pack(side="left", padx=(4, 4))
+        ttk.Button(bar5, text="Clear",
+                   command=self.clear_vzero).pack(side="left", padx=(0, 8))
+        self.vzero_lbl = ttk.Label(bar5, text="Vzero: none", foreground="#777")
+        self.vzero_lbl.pack(side="left")
+        ttk.Label(bar5, text="  (momentarily zeros drive, records each ch's 0 mA baseline)",
+                  foreground="#777").pack(side="left")
+
+        # AD7193 internal calibration, on demand — for A/B-ing the cal's effect on
+        # the zero-scale offset. "Run ADC cal" forces the XTR200 front-ends off,
+        # runs zero/full-scale cal, restores enables; "Clear ADC cal" reverts to
+        # the factory offset/full-scale (undoes any internal cal).
+        ttk.Label(bar5, text="   ADC cal:").pack(side="left")
+        ttk.Button(bar5, text="Run ADC cal",
+                   command=self.run_adc_cal).pack(side="left", padx=(4, 4))
+        ttk.Button(bar5, text="Clear ADC cal",
+                   command=self.clear_adc_cal).pack(side="left")
+
+        # Sixth row: AD7193 sampling settings (speed / noise / offset knobs).
+        bar6 = ttk.Frame(self)
+        bar6.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Label(bar6, text="ADC  RATE (FS):").pack(side="left")
+        er = ttk.Entry(bar6, width=5, textvariable=self.adc_rate)
+        er.pack(side="left", padx=(2, 8))
+        er.bind("<Return>", lambda _ev: self.apply_rate())
+
+        ttk.Label(bar6, text="AVG:").pack(side="left")
+        ea = ttk.Entry(bar6, width=4, textvariable=self.adc_avg)
+        ea.pack(side="left", padx=(2, 8))
+        ea.bind("<Return>", lambda _ev: self.apply_avg())
+
+        ttk.Label(bar6, text="Gain:").pack(side="left")
+        og = ttk.OptionMenu(bar6, self.adc_gain, self.adc_gain.get(),
+                            "1", "8", "16", "32", "64", "128",
+                            command=lambda _v: self.apply_gain())
+        og.pack(side="left", padx=(2, 8))
+
+        ttk.Label(bar6, text="Filter:").pack(side="left")
+        of = ttk.OptionMenu(bar6, self.adc_filter, self.adc_filter.get(),
+                            "SINC4", "SINC3",
+                            command=lambda _v: self.apply_filter())
+        of.pack(side="left", padx=(2, 8))
+
+        ttk.Checkbutton(bar6, text="CHOP", variable=self.adc_chop,
+                        command=self.apply_chop).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(bar6, text="REJ60", variable=self.adc_rej60,
+                        command=self.apply_rej60).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(bar6, text="Bipolar", variable=self.adc_bipolar,
+                        command=self.apply_bipolar).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(bar6, text="Buffer", variable=self.adc_buf,
+                        command=self.apply_buf).pack(side="left", padx=(0, 8))
+
+        ttk.Label(bar6, text="(gain/chop/buffer recalibrate; higher FS/CHOP/REJ60 = "
+                             "slower, cleaner; bipolar shows signed/negative V; "
+                             "leave Buffer ON for normal use)",
+                  foreground="#777").pack(side="left")
+
+        self._build_bench_rows()
+
+    def _build_bench_rows(self):
+        """Bench row: the paper's validation measurements against a Keithley
+        2100. Each writes one self-describing CSV (see koi_bench.py); the grid
+        poll is suspended while one runs, so nothing competes for the setpoint.
+        """
+        bar7 = ttk.Frame(self)
+        bar7.grid(row=6, column=0, sticky="ew", pady=(0, 4))
+
+        ttk.Label(bar7, text="Bench ch:").pack(side="left")
+        ttk.Entry(bar7, width=4, textvariable=self.bench_ch).pack(
+            side="left", padx=(2, 6))
+        ttk.Label(bar7, text="R load (Ω):").pack(side="left")
+        ttk.Entry(bar7, width=10, textvariable=self.bench_r).pack(
+            side="left", padx=(2, 2))
+        self.bench_rsrc = ttk.Label(bar7, text="(typed)", foreground="#777")
+        self.bench_rsrc.pack(side="left", padx=(0, 6))
+        ttk.Label(bar7, text="settle (s):").pack(side="left")
+        ttk.Entry(bar7, width=5, textvariable=self.bench_settle).pack(
+            side="left", padx=(2, 6))
+        ttk.Label(bar7, text="out:").pack(side="left")
+        ttk.Entry(bar7, width=18, textvariable=self.bench_outdir).pack(
+            side="left", padx=(2, 6))
+        ttk.Button(bar7, text="Stop", command=self.abort_bench).pack(
+            side="right", padx=(0, 4))
+
+        bar8 = ttk.Frame(self)
+        bar8.grid(row=7, column=0, sticky="ew", pady=(0, 8))
+        self.bench_buttons = {}
+        if HAVE_BENCH:
+            for key, label, _fn, tip in koi_bench.MEASUREMENTS:
+                b = ttk.Button(bar8, text=label,
+                               command=lambda k=key: self.start_bench(k))
+                b.pack(side="left", padx=(0, 4))
+                self.bench_buttons[key] = b
+                _Tooltip(b, tip)
+        else:
+            ttk.Label(bar8, text="bench measurements need koi_bench.py + "
+                                 "keithley2100.py on the path",
+                      foreground="#a00").pack(side="left")
+        self.bench_lbl = ttk.Label(bar8, text="", foreground="#777")
+        self.bench_lbl.pack(side="left", padx=(8, 0))
+
     def _build_grid(self):
         # The 8×8 grid is taller/wider than most screens, so host it in a
         # scrollable canvas (vertical + horizontal) instead of packing it raw.
         container = ttk.Frame(self)
-        container.grid(row=4, column=0, sticky="nsew")
-        self.rowconfigure(4, weight=1)
+        container.grid(row=8, column=0, sticky="nsew")
+        self.rowconfigure(8, weight=1)
         self.columnconfigure(0, weight=1)
 
         canvas = tk.Canvas(container, highlightthickness=0)
@@ -966,6 +1401,185 @@ class App(tk.Tk):
         self.poller.request_rescan()
         self.status.config(text="rescanning boards…")
 
+    def dac_init(self):
+        """Manually rewrite every populated DAC's config (soft reset, external
+        ref, gain) and reload setpoints — recovery for the internal-2.5V-
+        reference brownout signature (>1 V at 0 mA / VREF pin at 2.5 V)."""
+        if self.poller is None:
+            self.start_polling()
+        self.cmd_q.put("DACINIT")
+        self.status.config(text="DACINIT sent (rewriting DAC config…)")
+
+    def toggle_xtr(self):
+        """Toggle all XTR200 front-ends off/on — an ADC-offset diagnostic.
+        With the front-ends DISABLED (`XTR 0x00`) no channel sources any
+        current, so whatever the grid still reads is a pure ADC/PCB voltage-
+        side offset. Compare that against the enabled-at-0mA reading: if the
+        residual collapses when the XTRs go off it was XTR200 IOS/leakage
+        current (a current-side term); if it persists it's ADC/PCB. Leaves the
+        currents untouched — re-enabling restores normal drive."""
+        if self.poller is None:
+            self.start_polling()
+        if self.xtr_enabled:
+            self.cmd_q.put("XTR 0x00")
+            self.xtr_enabled = False
+            self.xtr_btn.config(text="XTR on")
+            self.status.config(text="XTR front-ends OFF — grid = pure ADC offset")
+        else:
+            active = self.poller.active_boards if self.poller else None
+            mask = 0
+            for b in (active if active else range(NUM_BOARDS)):
+                mask |= (1 << b)
+            self.cmd_q.put(f"XTR 0x{mask:02X}")
+            self.xtr_enabled = True
+            self.xtr_btn.config(text="XTR off")
+            self.status.config(text=f"XTR front-ends ON (0x{mask:02X})")
+
+    def run_adc_cal(self):
+        """Run the AD7193 internal zero/full-scale calibration on all populated
+        boards (`CAL`). The firmware forces the XTR200 front-ends off across the
+        cal so no offset current biases the zero-scale point, then restores the
+        enable state. Follow with 'Clear ADC cal' to compare the offset."""
+        if self.poller is None:
+            self.start_polling()
+        self.cmd_q.put("CAL")
+        self.status.config(text="CAL sent (running ADC internal calibration…)")
+
+    def clear_adc_cal(self):
+        """Clear the AD7193 user calibration on all populated boards (`CALCLR`):
+        resets each ADC to its factory offset/full-scale, undoing any internal
+        cal, so you can read the uncalibrated zero-scale offset."""
+        if self.poller is None:
+            self.start_polling()
+        self.cmd_q.put("CALCLR")
+        self.status.config(text="CALCLR sent (cleared ADC cal → factory)")
+
+    # ---- ADC sampling settings -------------------------------------------
+    def _ensure_polling(self):
+        if self.poller is None:          # nothing drains the queue while paused
+            self.start_polling()
+
+    def apply_rate(self):
+        try:
+            fs = int(float(self.adc_rate.get()))
+        except ValueError:
+            self.status.config(text="RATE must be an integer 1..1023")
+            return
+        if not (1 <= fs <= 1023):
+            self.status.config(text="RATE out of range (1..1023)")
+            return
+        self.adc_rate.set(str(fs))
+        self._ensure_polling()
+        self.cmd_q.put(f"RATE {fs}")
+        self.status.config(text=f"ADC RATE (FS) → {fs}")
+
+    def apply_avg(self):
+        try:
+            n = int(float(self.adc_avg.get()))
+        except ValueError:
+            self.status.config(text="AVG must be an integer 1..64")
+            return
+        if not (1 <= n <= 64):
+            self.status.config(text="AVG out of range (1..64)")
+            return
+        self.adc_avg.set(str(n))
+        self._ensure_polling()
+        self.cmd_q.put(f"AVG {n}")
+        self.status.config(text=f"ADC AVG → {n}")
+
+    def apply_gain(self):
+        g = self.adc_gain.get()
+        self._ensure_polling()
+        self.cmd_q.put(f"GAIN {g}")
+        self.status.config(text=f"ADC gain → ×{g} (zero-scale recal…)")
+
+    def apply_filter(self):
+        f = self.adc_filter.get()
+        self._ensure_polling()
+        self.cmd_q.put(f"FILTER {f}")
+        self.status.config(text=f"ADC filter → {f}")
+
+    def apply_chop(self):
+        on = self.adc_chop.get()
+        self._ensure_polling()
+        self.cmd_q.put("CHOP ON" if on else "CHOP OFF")
+        self.status.config(text=f"ADC CHOP → {'ON' if on else 'OFF'} (recalibrating…)")
+
+    def apply_rej60(self):
+        on = self.adc_rej60.get()
+        self._ensure_polling()
+        self.cmd_q.put("REJ60 ON" if on else "REJ60 OFF")
+        self.status.config(text=f"ADC REJ60 → {'ON' if on else 'OFF'}")
+
+    def apply_buf(self):
+        """AD7193 input buffer (fw1.3). Turning it OFF is confirmed first.
+
+        Unbuffered mode is only valid with a low-impedance source driving the
+        ADC pin directly. Through the on-board 6:1 divider (~16.7 kOhm) the
+        channel reads 0.000000 — a plausible-looking number that is not a
+        measurement. Recoverable by turning Buffer back on.
+
+        The firmware does NOT recalibrate on a BUF change (see 'BUF ON|OFF [CAL]'
+        in main.cpp): whenever unbuffered mode is legitimately in use there is a
+        forced non-zero voltage on the pin, which a zero-scale cal would absorb
+        into the offset register. Use the Cal button with the input at 0 V."""
+        on = self.adc_buf.get()
+        if not on:
+            ok = messagebox.askokcancel(
+                "Turn the ADC input buffer OFF?",
+                "Unbuffered mode needs an SMU driving the ADC pin directly on a "
+                "desoldered channel.\n\n"
+                "Through the on-board 6:1 divider every channel will read exactly "
+                "0.000000. That is not a measurement.\n\n"
+                "The offset is NOT recalibrated on this change — it still holds "
+                "the value from the previous buffer setting. Run Cal with the "
+                "input at 0 V once you are done.\n\n"
+                "Turn Buffer back ON to recover.",
+                icon="warning", default="cancel", parent=self)
+            if not ok:
+                self.adc_buf.set(True)      # revert the checkbox, send nothing
+                return
+        self._ensure_polling()
+        self.cmd_q.put("BUF ON" if on else "BUF OFF")
+        self.status.config(
+            text=f"ADC buffer → {'ON' if on else 'OFF'} — offset NOT recalibrated "
+                 f"(run Cal with the input at 0 V to refresh it)")
+
+    def apply_bipolar(self):
+        on = self.adc_bipolar.get()
+        self._ensure_polling()
+        self.cmd_q.put("BIPOLAR ON" if on else "BIPOLAR OFF")
+        self.status.config(
+            text=f"ADC polarity → {'bipolar (±FS, signed)' if on else 'unipolar (0..FS)'}")
+
+    def _apply_adc_settings(self, s):
+        """Mirror the device's live ADC settings (from ADC?) into the controls.
+        Sets the tk vars directly — the OptionMenu/Checkbutton callbacks only
+        fire on user interaction, so this display refresh doesn't re-send."""
+        if "rate" in s:
+            self.adc_rate.set(str(s["rate"]))
+        if "avg" in s:
+            self.adc_avg.set(str(s["avg"]))
+        if "gain" in s:
+            self.adc_gain.set(str(s["gain"]))
+        if "filter" in s:
+            self.adc_filter.set(str(s["filter"]))
+        if "chop" in s:
+            self.adc_chop.set(s["chop"] not in ("0", "OFF", "off"))
+        if "rej60" in s:
+            self.adc_rej60.set(s["rej60"] not in ("0", "OFF", "off"))
+        if "polarity" in s:
+            self.adc_bipolar.set(str(s["polarity"]).lower().startswith("bi"))
+        # buf= is fw1.3+; pre-1.3 firmware omits it, so leave the control at its
+        # ON default rather than implying the device reported something.
+        if "buf" in s:
+            self.adc_buf.set(s["buf"] not in ("0", "OFF", "off"))
+        self.status.config(
+            text=f"ADC settings: FS={s.get('rate')} avg={s.get('avg')} "
+                 f"gain=×{s.get('gain')} filter={s.get('filter')} "
+                 f"chop={s.get('chop')} rej60={s.get('rej60')} "
+                 f"polarity={s.get('polarity')} buf={s.get('buf', 'n/a')}")
+
     # ---- updates ----------------------------------------------------------
     def _drain_queue(self):
         try:
@@ -974,6 +1588,7 @@ class App(tk.Tk):
                 if kind == "data" and payload is not None:
                     self._last = payload
                     self._render(payload)
+                    self._check_dac_ref(payload)
                     now = time.time()
                     if self._last_update_t is not None:
                         hz = 1.0 / max(now - self._last_update_t, 1e-6)
@@ -992,10 +1607,23 @@ class App(tk.Tk):
                     self._on_char_done(payload)
                 elif kind == "offcal_done":
                     self._on_offcal_done(payload)
+                elif kind == "vzero_done":
+                    self._on_vzero_done(payload)
+                elif kind == "bench_progress":
+                    self.status.config(text=str(payload))
+                elif kind == "bench_done":
+                    self._on_bench_done(payload)
+                elif kind == "errflags":
+                    if payload != self.errflags:
+                        self.errflags = payload
+                        self._render(self._last)   # repaint fault highlights
+                    self._update_ef_label()
                 elif kind == "rescan_done":
                     boards = [b for b in range(NUM_BOARDS) if payload & (1 << b)]
                     self.status.config(
                         text=f"rescan: active boards {boards} (0x{payload:02X})")
+                elif kind == "adc_settings":
+                    self._apply_adc_settings(payload)
                 elif kind == "info":
                     self.status.config(text=str(payload))
                 elif kind == "error":
@@ -1025,6 +1653,83 @@ class App(tk.Tk):
         self.sweep_active = True
         self.poller.request_sweep(ch, imax, self.sweep_step, self.sweep_settle)
         self.status.config(text=f"sweeping ch{ch} 0..{imax:g} mA …")
+
+    # ---- bench measurements (Keithley 2100) --------------------------------
+    def start_bench(self, key):
+        """Validate inputs on the GUI thread, then hand the run to the poller."""
+        if self.bench_active:
+            self.status.config(text=f"bench '{self.bench_active}' already running")
+            return
+        try:
+            ch = int(self.bench_ch.get())
+            settle = float(self.bench_settle.get())
+        except ValueError:
+            self.status.config(text="bad bench channel / settle")
+            return
+        if not (0 <= ch < TOTAL_CH):
+            self.status.config(text="bench ch must be 0..63")
+            return
+
+        # Everything except the ohms scan derives a current from R, so refuse to
+        # run without one rather than silently recording numbers that will have
+        # to be re-derived later.
+        r_load = 0.0
+        if key != "rload":
+            try:
+                r_load = float(self.bench_r.get())
+            except ValueError:
+                r_load = 0.0
+            if r_load <= 0:
+                self.status.config(
+                    text="set R load first — run 'Measure R (4-wire)'")
+                return
+
+        board = ch // CH_PER_BOARD
+        active = self.poller.active_boards if self.poller else None
+        if active is not None and board not in active:
+            self.status.config(
+                text=f"ch{ch}: board {board} not detected — Rescan first")
+            return
+
+        mask = 0
+        for b in (active if active else [board]):
+            mask |= (1 << b)
+
+        if self.poller is None:
+            self.start_polling()
+        self.bench_active = key
+        for b in self.bench_buttons.values():
+            b.state(["disabled"])
+        self.poller.request_bench(key, dict(
+            ch=ch, r_load=r_load, r_source=self.bench_r_source,
+            outdir=self.bench_outdir.get(), settle=settle, xtr_mask=mask))
+        self.status.config(text=f"bench: {key} on ch{ch} …")
+
+    def abort_bench(self):
+        if self.poller and self.bench_active:
+            self.poller.abort_bench()
+            self.status.config(text=f"bench: aborting {self.bench_active} …")
+
+    def _on_bench_done(self, payload):
+        key, path, summary = payload[0], payload[1], payload[2]
+        extra = payload[3] if len(payload) > 3 else None
+        self.bench_active = None
+        for b in self.bench_buttons.values():
+            b.state(["!disabled"])
+        # The ohms scan is the one measurement that feeds the others: adopt its
+        # result as R for everything downstream, and record that it was measured
+        # rather than typed so the CSV headers say so.
+        if key == "rload" and extra:
+            self.bench_r.set(f"{extra:.4f}")
+            self.bench_r_source = f"4-wire {time.strftime('%Y-%m-%d %H:%M')}"
+            self.bench_rsrc.config(text="(4-wire)", foreground="#070")
+        if path:
+            self.bench_lbl.config(text=f"{os.path.basename(path)} — {summary}",
+                                  foreground="#070")
+            self.status.config(text=f"bench {key}: {summary}")
+        else:
+            self.bench_lbl.config(text=f"{key}: {summary}", foreground="#a00")
+            self.status.config(text=f"bench {key} failed: {summary}")
 
     # ---- resistance characterization --------------------------------------
     def start_characterize(self):
@@ -1148,6 +1853,73 @@ class App(tk.Tk):
         self.status.config(text=msg)
         self._recompute()
 
+    # ---- per-channel measure-side zero-offset (voltage) -------------------
+    def start_vzero_cal(self):
+        if self.vzero_active:
+            self.status.config(text="zero-offset capture already running")
+            return
+        if self.poller is None:
+            self.start_polling()
+        self.vzero_active = True
+        self.poller.request_vzero_cal(dict(settle=0.6))
+        self.status.config(text="capturing zero-offsets (drive off)…")
+
+    def _on_vzero_done(self, payload):
+        vzero_v, used, skipped, path, err = payload
+        self.vzero_active = False
+        self.vzero_v = vzero_v
+        # Capture left the firmware at 0 mA with front-ends re-enabled — reflect
+        # the zeroed setpoints so the fields and DAC-brownout watchdog stay in sync.
+        self.setpoint_ma = [0.0] * TOTAL_CH
+        for g in range(TOTAL_CH):
+            self.cells[g]["set"].set("0")
+        self._update_vzero_label(used)
+        msg = f"zero-offset capture: {len(used)} ch"
+        if skipped:
+            msg += f", skipped {skipped} (still driven/faulted)"
+        msg += f"  ({err})" if err else f"  → {os.path.basename(path)}"
+        self.status.config(text=msg)
+        self._recompute()
+
+    def clear_vzero(self):
+        """Zero the in-memory measure-side table and remove its file."""
+        self.vzero_v = [0.0] * TOTAL_CH
+        note = ""
+        try:
+            os.remove(os.path.join(os.getcwd(), VZERO_TABLE_FILE))
+            note = f" ({VZERO_TABLE_FILE} deleted)"
+        except OSError:
+            pass
+        self.vzero_lbl.config(text="Vzero: none")
+        self.status.config(text="zero-offset table cleared" + note)
+        self._recompute()
+
+    def _update_vzero_label(self, used=None):
+        nz = [self.vzero_v[g] * 1e3 for g in range(TOTAL_CH)
+              if self.vzero_v[g] != 0.0]
+        if nz:
+            n = len(used) if used is not None else len(nz)
+            self.vzero_lbl.config(
+                text=f"Vzero: {n} ch, {min(nz):+.3f}..{max(nz):+.3f} mV")
+        else:
+            self.vzero_lbl.config(text="Vzero: none")
+
+    def _load_vzero_table(self):
+        """Adopt a previously saved measure-side zero-offset table, if any."""
+        try:
+            with open(os.path.join(os.getcwd(), VZERO_TABLE_FILE)) as f:
+                d = json.load(f)
+            tab = [float(x) for x in d["vzero_v"]]
+            if len(tab) != TOTAL_CH:
+                raise ValueError(f"expected {TOTAL_CH} entries, got {len(tab)}")
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            self.vzero_lbl.config(text=f"Vzero: load failed ({e})")
+            return
+        self.vzero_v = tab
+        self._update_vzero_label()
+
     def clear_offsets(self):
         """Zero the in-memory table and remove the persisted file (else the
         cleared table would silently come back on the next start)."""
@@ -1207,6 +1979,62 @@ class App(tk.Tk):
         """Re-render heater column when the divider is edited live."""
         self._render(self._last)
 
+    def _check_dac_ref(self, vals):
+        """Auto-recover a DAC that lost its external-ref config (brownout →
+        internal 2.5 V reference): a populated channel commanded to 0 mA
+        reading raw > DAC_FAULT_RAW_V triggers a `DACINIT <b>` rewrite for its
+        board. Rate-limited to 1/10 s per board, and after 3 sends without the
+        condition clearing it gives up (guards against a reset loop when the
+        real cause is elsewhere — e.g. the GUI restarted while the firmware
+        still drives setpoints this session never commanded). Suppressed while
+        a sweep/cal runs, since those drive currents setpoint_ma doesn't track."""
+        if self.sweep_active or self.char_active or self.offcal_active \
+                or self.vzero_active or self.bench_active:
+            return
+        now = time.time()
+        suspect = {g // CH_PER_BOARD for g, raw in enumerate(vals)
+                   if raw == raw and self.setpoint_ma[g] == 0
+                   and raw > DAC_FAULT_RAW_V}
+        for b in range(NUM_BOARDS):
+            if b not in suspect:
+                self._dacinit_state.pop(b, None)     # clean again → re-arm
+                continue
+            last, strikes = self._dacinit_state.get(b, (0.0, 0))
+            if strikes >= 3 or now - last < 10.0:
+                continue
+            self._dacinit_state[b] = (now, strikes + 1)
+            self.cmd_q.put(f"DACINIT {b}")
+            if strikes + 1 >= 3:
+                self.status.config(text=f"board {b}: still >1 V at 0 mA after "
+                                        f"3 DACINITs — giving up, check hardware")
+            else:
+                self.status.config(text=f"board {b}: >1 V at 0 mA — DAC ref "
+                                        f"lost? DACINIT sent")
+
+    def _ef_fault(self, g):
+        """True if channel g's XTR200 flags an error. Only meaningful for
+        populated channels — a missing board breaks the 165 chain, so callers
+        must gate on the channel actually reading (non-NaN)."""
+        if self.errflags is None:
+            return False
+        level = (self.errflags >> g) & 1
+        return (level == 0) if ERRFLAG_ACTIVE_LOW else (level == 1)
+
+    def _update_ef_label(self):
+        if self.errflags is None:
+            self.ef_lbl.config(text="EF: n/a", foreground="#777")
+            return
+        faulted = [g for g in range(TOTAL_CH)
+                   if self._last[g] == self._last[g] and self._ef_fault(g)]
+        if not faulted:
+            self.ef_lbl.config(text="EF: ok", foreground="#777")
+        elif len(faulted) > 8:
+            self.ef_lbl.config(text=f"EF fault: {len(faulted)} channels",
+                               foreground="#c00")
+        else:
+            self.ef_lbl.config(text="EF fault: ch " + ",".join(map(str, faulted)),
+                               foreground="#c00")
+
     def _render(self, vals):
         try:
             div = float(self.divider.get())
@@ -1229,13 +2057,18 @@ class App(tk.Tk):
                 c["frame"].config(bg="#eee")
                 c["entry"].config(state="disabled")
             else:
-                heater_v = (raw + off_v) * div     # offset-corrected, then divider
-                # The divider steals (raw+offset)/20k from the source; the heater
-                # gets the rest. Source current = commanded + this channel's XTR
-                # offset current (per-channel table from "Cal offsets").
-                i_div = (raw + off_v) / DIVIDER_BOTTOM_OHMS
+                # Correct raw by the global Offset+ and this channel's measured
+                # zero baseline (per-channel measure-side offset), then divide.
+                eff = raw + off_v - self.vzero_v[g]
+                heater_v = eff * div
+                # The divider steals eff/20k from the source; the heater gets the
+                # rest. Source current = commanded + this channel's XTR offset
+                # current (per-channel table from "Cal offsets").
+                i_div = eff / DIVIDER_BOTTOM_OHMS
                 i_a = (self.setpoint_ma[g] + self.ios_ma[g]) * 1e-3 - i_div
-                c["raw"].set(f"{raw * 1e3:8.3f} mV")
+                fault = self._ef_fault(g)
+                bg = "#fdd" if fault else "white"
+                c["raw"].set(f"{raw * 1e3:8.3f} mV" + ("  EF!" if fault else ""))
                 c["heat"].set(f"{heater_v:8.4f} V")
                 c["cur"].set(f"I {i_a * 1e3:7.4f} mA")
                 # The XTR200 sources I, the ADC measures V → solve for the unknown load.
@@ -1246,10 +2079,10 @@ class App(tk.Tk):
                 else:
                     c["res"].set("R —")
                     c["pwr"].set("P 0 mW")
-                c["frame"].config(bg="white")
+                c["frame"].config(bg=bg)
                 for lbl in all_lbls:
-                    c[lbl].config(bg="white")
-                c["raw_lbl"].config(fg="#555")
+                    c[lbl].config(bg=bg)
+                c["raw_lbl"].config(fg="#c00" if fault else "#555")
                 c["heat_lbl"].config(fg="black")
                 c["cur_lbl"].config(fg="#06c")
                 c["res_lbl"].config(fg="#093")

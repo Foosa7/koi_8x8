@@ -1,0 +1,18 @@
+# measurement: noise
+# utc: 2026-07-30T15:02:36Z  local: 2026-07-30 17:02:36
+# channel: g=0 (board 0, ch 0)
+# r_load_ohm: 996.4000   source: externally measured 4-wire (not via jig)
+# r_divider_ohm: 120000
+# settle_s: 0.8   dmm_nplc: 1
+# code_nA: 97.3980   full_scale_mA: 6.3830
+# koi: KOI,8x8,fw1.2
+# koi_adc: OK ADC rate=96 avg=4 gain=1 chop=0 filter=SINC4 rej60=0 polarity=uni
+# dmm: KEITHLEY INSTRUMENTS INC.,MODEL 2100,1,01.07-01-01
+# dmm_polarity: inverted (corrected in software)
+# i_test_mA: 1.0   reads/setting: 30   discarded after each change: 5
+rate,avg,t_per_read_s,koi_mean_V,koi_sd_V,koi_sd_load_uV,equiv_current_nA,dmm_mean_V,dmm_sd_V,n
+16,4,0.0556,0.162128567,1.136e-05,68.150,68.396,0.993716064,8.822e-06,30
+96,1,0.0807,0.162126933,5.291e-06,31.746,31.861,0.993712864,6.295e-06,30
+96,4,0.3198,0.162128867,3.082e-06,18.492,18.559,0.993711306,1.045e-05,30
+96,16,1.2760,0.162128267,1.721e-06,10.324,10.362,0.993694246,1.194e-05,30
+240,4,0.7955,0.162130900,2.203e-06,13.216,13.264,0.993739520,7.920e-06,30

@@ -11,13 +11,8 @@ void HC138::begin() {
     pinMode(_a1, OUTPUT);
     pinMode(_a2, OUTPUT);
     pinMode(_en, OUTPUT);
-    digitalWrite(_en, _enActiveLow ? HIGH : LOW);   // idle => decoder disabled
+    digitalWrite(_en, HIGH);   // ~G2A is active-low: idle HIGH => decoder disabled
     _setAddress(0);
-}
-
-void HC138::setEnableActiveLow(bool v) {
-    _enActiveLow = v;
-    digitalWrite(_en, _enActiveLow ? HIGH : LOW);   // idle = disabled
 }
 
 void HC138::_setAddress(uint8_t y) {
@@ -29,9 +24,9 @@ void HC138::_setAddress(uint8_t y) {
 void HC138::selectDevice(uint8_t d) {
     // Inverted wiring: device d (CS d+1) is on decoder output Y(7-d).
     _setAddress(7 - (d & 0x07));
-    digitalWrite(_en, _enActiveLow ? LOW : HIGH);   // assert this decoder
+    digitalWrite(_en, LOW);    // assert this decoder
 }
 
 void HC138::deselect() {
-    digitalWrite(_en, _enActiveLow ? HIGH : LOW);
+    digitalWrite(_en, HIGH);
 }
