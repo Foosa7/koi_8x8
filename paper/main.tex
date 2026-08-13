@@ -24,7 +24,7 @@
 % --- editing helpers --------------------------------------------------
 % \todo{...} marks something to fill in; renders in red. Set \draftfalse
 % (or comment the \drafttrue line) to hide them for a clean read.
-\newif\ifdraft\draftfalse
+\newif\ifdraft\drafttrue
 \newcommand{\todo}[1]{\ifdraft{\color{red}\textbf{[TODO: #1]}}\fi}
 \newcommand{\note}[1]{\ifdraft{\color{blue!60!black}\textit{(#1)}}\fi}
 
@@ -164,11 +164,9 @@ optional one-time calibration against a reference SMU.
   \item Per-channel closed-loop readout enabling in-situ $R$ and power
         measurement, with an analytic correction for the on-board sense
         divider current.
-  \item A fast continuous-conversion scan that reads a two-board, 16-channel
-        system in $\approx$80\,ms (measured), $\sim$40$\times$ faster than
-        per-channel single-shot conversion. \todo{measure the full 64-channel
-        scan time; the readout is not yet optimized (headroom: SPI clock,
-        overlapping the per-board scans) --- quantify before submission.}
+  \item A fast continuous-conversion scan that reads the full 64-channel array
+        in \textbf{0.46\,s} (measured, Section~\ref{sec:throughput}), gated by
+        filter settling rather than by a per-channel restart penalty.
   \item Open hardware, firmware, host software, and calibration tooling.
 \end{itemize}
 
@@ -266,7 +264,11 @@ The divider (100\,k$\Omega$ + 20\,k$\Omega$ = 120\,k$\Omega$) draws a small,
 This correction is exact and computed from the live measurement (not a
 calibrated parameter). The XTR200 transconductance ($\approx 0.47$\,V/mA seed)
 and a per-channel offset current ($I_{OS}$) are captured by the calibration in
-Section~\ref{sec:validation}.
+Section~\ref{sec:validation}. The $\times6$ relation above holds above a
+low-signal knee at $V_\text{node}\approx44$\,mV, below which the sense path
+departs from it; the measured transfer function, the additive correction that
+applies above the knee, and the resulting bound on the usable low end are
+given in Section~\ref{sec:vsense-linearity}.
 
 % =====================================================================
 \section{Design files summary}
@@ -470,72 +472,366 @@ representative commercial module (Qontrol Q8a~\cite{qontrol_q8a}) so the two can
 be compared plot-for-plot; all figures below report \emph{Koi}'s own measured
 data. Note the differing operating ranges (Koi 0--6\,mA vs.\ Q8a 0--100\,mA), so
 resolution/precision are additionally reported as a fraction of full scale.
-\todo{Report span error, nonlinearity, and per-channel $I_{OS}$ after cal.}
 \emph{Preliminary bench data (single board, 2026-06-17):} XTR200 gain is
 near-ideal (datasheet span error $\le \pm0.065\%$, nonlinearity $\pm0.003\%$),
 so \texttt{calSlope} is treated as a shared constant; the per-channel offset
 $I_{OS}$ is the term needing measurement, bench-measured $\approx\pm4\,\mu$A
 (datasheet $\pm10\,\mu$A max).
-\todo{BLOCKER --- resolve the uniform $-24\,\mu$A static offset seen on the
-2026-07-03 devkit sweep (all channels, boards 0--2) before any per-channel
-$I_{OS}$ numbers are trusted: it is 2.4$\times$ the datasheet max and uniform
-across parts, so it is almost certainly systematic, not per-part $I_{OS}$.
-$\sim$10\,$\mu$A is attributed to board leakage; the remaining $\sim$14\,$\mu$A
-is unattributed (current-side vs.\ measurement-side still open --- the
-two-load attribution run of Section~\ref{sec:cal-method} is the measurement
-that decides this). Run the isolation ladder in the test plan on the devkit.}
+
+\paragraph{Measured drive accuracy (channel 0, 2026-07-30).} A 64-point sweep
+spanning 0.1--6.383\,mA was taken with a Keithley 2100 across a
+996.4\,$\Omega$ four-wire-measured load, in \emph{randomized} setpoint order so
+that any residual drift appears as scatter rather than as an apparent gain
+error. The actual sourced current is recovered as
+$I=V_\text{DMM}/R + V_\text{DMM}/120\,\text{k}\Omega$ (load plus the sense
+divider's share). Against commanded current,
+\[
+  I_\text{actual} = 1.00319\,I_\text{cmd} + 2.43\,\mu\text{A}.
+\]
+That is a $+0.319\,\%$ \emph{gain} error and an $I_{OS}$ of $+2.43\,\mu$A, well
+within the datasheet $\pm10\,\mu$A. Uncalibrated, the worst deviation across the
+range is $22.7\,\mu$A. The \emph{linearity} residual after removing gain and
+offset is $0.070\,\mu$A rms, i.e.\ $0.0011\,\%$ of the 6.383\,mA full scale ---
+a $320\times$ reduction for a two-parameter fit. The source is therefore
+excellent and essentially all of the drive error is a single uncalibrated scale
+factor, confirming the shared-slope / per-channel-offset model above. No
+compliance limit was reached, with the XTR200 \textsc{errorflag} clear
+throughout.
+
+\note{The load resistance is the most leveraged constant in this section: it
+converts every measured voltage into a current, so an error in it presents as a
+gain error and nothing else. An earlier campaign assumed 1005.68\,$\Omega$ for
+this same load against a correct four-wire value of 996.4\,$\Omega$, and that
+$0.92\,\%$ difference was enough to reverse the \emph{sign} of the reported gain
+error. Every raw meter voltage is archived with the released data so that R
+enters only at analysis time.}
+\todo{Repeat across all 64 channels to publish the per-channel $I_{OS}$
+distribution; the above is one channel.}
+\note{RESOLVED --- the uniform $-24\,\mu$A static offset seen on an early
+devkit sweep (all channels, boards 0--2) was never a current-side term. It is
+\emph{measurement}-side: the sense path's low-signal gain deficit
+(Section~\ref{sec:vsense-linearity}) presents above the knee as a fixed
+$-3.75$\,mV ADC-referred error, which divided by the load reads back as an
+apparently uniform current offset --- hence its being uniform across parts and
+far above the datasheet $I_{OS}$ maximum. Per-channel $I_{OS}$ numbers taken
+after correcting the sense path are therefore trustworthy; the drive side never
+had this error.}
 
 % --- Current transfer function (coarse + fine) ---
 \begin{figure}[htbp]
   \centering
-  \plotph{0.46\textwidth}{4.4cm}{CURRENT TRANSFER FUNCTION\\(nominal vs.\ measured, all 64 ch)}\hfill
-  \plotph{0.46\textwidth}{4.4cm}{CURRENT TRANSFER FUNCTION (fine)\\(single-code region)}
-  \caption{Current transfer function. Nominal commanded current vs.\ current
-  measured by an external reference (Keithley 2400) across all 64 channels; the
-  fine panel resolves the low-current, single-code region.}
+  \includegraphics[width=\textwidth]{figures/i-transfer.png}
+  \caption{Current transfer function, channel~0. Left: commanded current vs.\
+  current measured by the external reference over the full 0--6.383\,mA range,
+  64 points in randomized order; the $+0.319\,\%$ gain error is far too small to
+  see at this scale, which is why the deviation plot of
+  Figure~\ref{fig:i-deviation} is the informative view. Right: the single-code
+  region at 3\,mA, showing that individual DAC codes ($1\,\text{LSB}=97.4$\,nA)
+  are cleanly resolved by the reference.}
   \label{fig:i-transfer}
 \end{figure}
 
 % --- Current deviation: ext DMM + onboard ADC ---
 \begin{figure}[htbp]
   \centering
-  \plotph{0.46\textwidth}{4.4cm}{CURRENT DEVIATION\\(measured with ext.\ DMM)}\hfill
-  \plotph{0.46\textwidth}{4.4cm}{CURRENT DEVIATION\\(measured with onboard ADC)}
-  \caption{Current deviation from nominal. Left: against an external reference
-  DMM (source accuracy). Right: against the on-board AD7193 readback (closed-loop
-  measurement accuracy, after the sense-divider correction).}
+  \includegraphics[width=\textwidth]{figures/i-deviation.png}
+  \caption{Current deviation from nominal, channel~0. Left: against the external
+  reference DMM --- source accuracy. The entire error is one straight line, i.e.\
+  a gain term plus an offset, with $0.070\,\mu$A rms left over. Right: against
+  the on-board AD7193 readback --- closed-loop measurement accuracy, after the
+  sense-divider correction, shown both with the nominal $\times6$ divider ratio
+  and after the two-parameter sense calibration of
+  Section~\ref{sec:vsense-linearity}.}
   \label{fig:i-deviation}
 \end{figure}
 
-% --- Single-code step size + DNL/INL ---
+\paragraph{Code-level resolution and linearity.} Resolution was measured with
+the external DMM alone --- the on-board ADC takes no part --- by stepping the
+DAC one code at a time and deriving current from the voltage across the
+four-wire load. The DAC is 16-bit over the 0--6.3830\,mA span, so the
+instrument offers \textbf{65\,536 individually settable currents per channel},
+on each of the 64 channels independently, with
+\[
+  1\,\text{LSB} = 97.398\,\text{nA} = 97.03\,\mu\text{V across }996.4\,\Omega .
+\]
+The 2100's own noise over the same reads is $\approx$8\,$\mu$V, i.e.\ $0.08$\,LSB,
+so the reference resolves roughly twelve steps within a single DAC code and
+\emph{every code is individually resolvable}; the DAC's LSB, not the
+measurement, sets the resolution. Points taken: 64 across the full range in
+randomized order, plus 33-code ($\pm16$\,LSB) sweeps centred on 1.0, 3.0 and
+5.0\,mA. Because a $\pm16$-code span is short enough that the converter's own
+integral nonlinearity dominates its local slope, the mean step measured that way
+($98.9$\,nA) characterizes \emph{step uniformity}, not gain; the gain figure is
+the full-range fit above.
+
+\medskip
+\noindent\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Measured} & \textbf{As \% FS} \\
+\midrule
+Settable levels & 65\,536 per channel (1\,LSB $=97.398$\,nA) & --- \\
+INL (randomized order) & rms 0.64\,LSB, max $-1.31$\,LSB & $0.0020\,\%$ \\
+INL (monotonic order) & rms 0.60\,LSB, max $-1.51$\,LSB & $0.0023\,\%$ \\
+DNL & max $0.40$\,LSB & --- \\
+Monotonicity & 0 non-monotonic steps in 96 & --- \\
+Effective resolution & 15.6 of 16 bits & --- \\
+\bottomrule
+\end{tabular}
+\medskip
+
+The converter is monotonic everywhere measured, at every centre and every
+settling time tried.
+
+\paragraph{Load self-heating, and why it no longer confounds the INL.} Measuring
+INL on a resistive load is not straightforward, because code order and thermal
+state are confounded: a monotonic 0--6.38\,mA ramp raises dissipation from 0 to
+40\,mW across the sweep, and a metal-film resistor at $\sim$50\,ppm/$^\circ$C
+warming a few degrees drifts $\sim$250\,ppm --- comparable to the
+$\sim$0.002\,\% FS being resolved. In an earlier configuration of this bench,
+with the load convecting freely, a monotonic ramp returned an INL some 60\,\%
+larger than a randomized sweep of the same converter, the difference being
+entirely thermal.
+
+The measurements reported here remove that mechanism at its source: the load is
+held at ambient by forced air, so its dissipation no longer maps onto code order.
+Two independent controls confirm it rather than assume it. First, the codes are
+still visited in random order with a fixed reference point re-measured every
+fourth point and each datum corrected by the reference interpolated to its
+timestamp. Second --- and this is the decisive one --- the same 48 codes were
+also swept \emph{monotonically}, the worst case for a self-heating artifact. The
+two agree: \textbf{rms 0.64\,LSB randomized against 0.60\,LSB monotonic}, well
+inside the 0.09\,LSB per-code repeatability. A thermal term large enough to
+matter cannot survive that comparison, so the residual is genuine converter
+nonlinearity.
+
+The practical consequence for anyone reproducing this work is that randomized
+order is a cheap check rather than a requirement, provided the load is
+temperature-stabilized; without stabilization it is mandatory, and a monotonic
+ramp will overstate INL substantially.
+
 \begin{figure}[htbp]
   \centering
-  \plotph{0.30\textwidth}{4.2cm}{CURRENT SINGLE-CODE\\STEP SIZE}\hfill
-  \plotph{0.30\textwidth}{4.2cm}{CURRENT-MODE DNL\\(diff.\ nonlinearity)}\hfill
-  \plotph{0.30\textwidth}{4.2cm}{CURRENT-MODE INL\\(int.\ nonlinearity)}
-  \caption{Code-level linearity. Single-code current step-size distribution
-  (nominal LSB set by the DAC80508 over the 0--6\,mA span), and current-mode
-  differential (DNL) and integral (INL) nonlinearity.}
+  \includegraphics[width=\textwidth]{figures/i-linearity.png}
+  \caption{Code-level linearity, channel~0, measured against the external DMM
+  with the on-board ADC unused. Left: single-code step-size distribution
+  (1\,LSB $=97.4$\,nA over the 0--6.383\,mA span). Centre: current-mode
+  differential nonlinearity, max $0.40$\,LSB, with no step approaching the
+  $-1$\,LSB missing-code limit at any of the three centres. Right: integral
+  nonlinearity in randomized and in monotonic code order. With the load held at
+  ambient by forced air the two agree (rms 0.64 vs.\ 0.60\,LSB), which is the
+  evidence that load self-heating no longer contaminates the measurement.}
   \label{fig:i-linearity}
 \end{figure}
 
 % --- Precision / std dev ---
 \begin{figure}[htbp]
   \centering
-  \plotph{0.6\textwidth}{4.4cm}{CURRENT STANDARD DEVIATION\\(at fixed setpoint, e.g.\ 3\,mA)}
-  \caption{Current precision: distribution of repeated measurements at a fixed
-  commanded current, quantifying single-channel noise (reported as $1\sigma$).}
+  \includegraphics[width=\textwidth]{figures/i-precision.png}
+  \caption{Measurement precision, channel~0. Left: $1\sigma$ over repeated reads
+  at each setpoint across the operating range, for the on-board ADC
+  (load-referred) and for the reference DMM over the same reads. Right: noise
+  against the two sampling controls, annotated with the per-read cost. Noise
+  falls monotonically as $\sqrt{n}$ with averaging over the whole range tested,
+  so no floor is reached; the choice of setting is a speed/noise trade rather
+  than a search for a floor (Section~\ref{sec:noise}).}
   \label{fig:i-precision}
 \end{figure}
 
-\subsection{Sense-divider correction}
-\todo{Validate $I_\text{heater}=I_\text{source}-V_\text{heater}/120\text{k}$
-against ground truth. Bench estimate: $\sim$0.68\,\% at 0.81\,V (1\,mA into
-811\,$\Omega$), scaling with $V_\text{heater}$.}
+\subsection{Sense-divider correction and end-to-end resistance accuracy}
+\label{sec:divider-correction}
+The divider-current correction
+$I_\text{heater}=I_\text{source}-V_\text{heater}/120\,\text{k}\Omega$ was
+validated end-to-end by comparing the resistance the instrument reports against
+the four-wire value of the reference load (996.4\,$\Omega$). Resistance is
+computed from the calibrated sense model of Section~\ref{sec:vsense-linearity},
+the commanded current, and the divider correction:
+
+\medskip
+\noindent\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Range} & \textbf{$R$ reported} & \textbf{vs.\ four-wire} \\
+\midrule
+$I\ge0.5$\,mA & $1000.65\pm0.80\,\Omega$ & $+0.426\,\%$ \\
+$I\ge1.0$\,mA & $1000.44\pm0.45\,\Omega$ & $+0.406\,\%$ \\
+$I\ge2.0$\,mA & $1000.27\pm0.24\,\Omega$ & $+0.389\,\%$ \\
+\bottomrule
+\end{tabular}
+\medskip
+
+The $+0.4\,\%$ bias is \emph{not} a failure of the divider correction: it is the
+$+0.319\,\%$ drive gain error of Section~\ref{sec:current-char} propagating
+through, because $R$ is computed from \emph{commanded} rather than measured
+current. The quantity that characterizes the instrument is the scatter,
+$\pm0.24$--$0.45\,\Omega$ ($0.02$--$0.05\,\%$), which is what remains once
+\texttt{calSlope} is trimmed. Correspondingly, the resistance accuracy of an
+uncalibrated unit is set by the drive scale factor, and of a calibrated unit by
+the sense residual (Section~\ref{sec:vsense-linearity}) and the drive linearity
+($0.0011\,\%$ FS).
+
+\note{This measurement is a useful check on the whole analysis chain. An earlier
+campaign, with the load resistance mistakenly taken as $1005.68\,\Omega$ instead
+of $996.4\,\Omega$, reported $-0.372/-0.393/-0.412\,\%$ with
+$\pm0.87/\pm0.49/\pm0.27\,\Omega$ scatter --- the same magnitudes and the same
+scatter as above, with the sign reversed, which is exactly what a $0.92\,\%$
+error in $R$ predicts. The scatter, the figure of merit here, is unchanged by
+the correction, as it must be: it does not depend on $R$.}
+
+\subsection{Voltage-sense linearity and the low-signal gain deficit}
+\label{sec:vsense-linearity}
+
+The voltage-sense path was characterized against a Keithley 2100 6.5-digit DMM
+connected directly across the load. The DMM was automated over USB-TMC
+(\texttt{tools/keithley2100.py}, driven by \texttt{tools/vsweep\_dmm.py}), so
+each sweep point is the mean of eight readings at 10 power-line cycles.
+Channel~0 was driven into a 996.4\,$\Omega$ resistor (four-wire measured)
+over 0.005--3\,mA, with the ADC at \texttt{RATE}\,96, \texttt{AVG}\,4, gain~1,
+SINC4, chopper off. The DMM was held on a \emph{fixed} 10\,V DC range for the
+whole sweep: autoranging would split the points across two range calibrations
+and fold the difference between them directly into the fitted intercept, which
+is the quantity of interest here.
+
+The transfer function is \textbf{piecewise linear}, with a knee that this sweep
+brackets between $V_\text{node}=42.0$ and $46.9$\,mV --- i.e.\ $44\pm2$\,mV,
+$\approx$44\,$\mu$A into this load. The incremental ratio collapses from 10.8 to
+7.2 across that single step and reaches its asymptote within two more:
+
+\medskip
+\noindent\begin{tabular}{@{}rrrrr@{}}
+\toprule
+\textbf{$I_\text{cmd}$ (mA)} & \textbf{$V_\text{node}$ (mV)} & \textbf{$V_\text{ADC}$ (mV)} & \textbf{incr.\ ratio} & \textbf{implied offset (mV)} \\
+\midrule
+0.005 & 7.245   & 0.473   & ---   & $-0.737$ \\
+0.010 & 12.266  & 0.888   & 12.09 & $-1.160$ \\
+0.020 & 22.120  & 1.715   & 11.82 & $-1.979$ \\
+0.030 & 32.066  & 2.562   & 11.64 & $-2.792$ \\
+0.040 & 42.008  & 3.456   & 10.80 & $-3.559$ \\
+\midrule
+0.045 & 46.946  & 4.145   & \textbf{7.17} & $-3.695$ \\
+0.050 & 51.839  & 4.943   & 6.13  & $-3.714$ \\
+0.100 & 101.484 & 13.197  & 6.009 & $-3.750$ \\
+0.200 & 200.564 & 29.707  & 6.001 & $-3.786$ \\
+1.000 & 993.703 & 162.128 & 5.988 & $-3.813$ \\
+2.000 & 1985.119 & 327.735 & 5.987 & $-3.765$ \\
+3.000 & 2976.507 & 493.342 & 5.986 & $-3.712$ \\
+\bottomrule
+\end{tabular}
+\medskip
+
+Least-squares fits to the two regimes:
+\[
+  \underbrace{V_\text{ADC} = \frac{V_\text{node}}{11.696} - 0.165\,\text{mV}}_{\text{below the knee},\ r^2=0.9995}
+  \qquad
+  \underbrace{V_\text{ADC} = \frac{V_\text{node}}{5.9883} - 3.752\,\text{mV}}_{\text{above the knee},\ r^2=1.0000000}
+\]
+
+\paragraph{Interpretation.} A residual of $\approx-3.5$\,mV at the ADC pin
+($\approx-21$\,mV load-referred) had previously been characterized as a fixed
+additive measurement offset. This sweep shows that description is an artifact
+of never sampling below 0.05\,mA: the low-current regime has an intercept of
+$-0.165$\,mV, i.e.\ \emph{essentially zero offset}, and instead roughly half the
+correct gain (11.70 vs.\ 5.99). The path therefore arrives at the knee already
+$\approx$3.6\,mV short and thereafter tracks with the \emph{correct} slope,
+which is indistinguishable from a fixed offset to any measurement taken above
+the knee. The offset is a consequence of the low-signal gain deficit, not an
+independent term.
+
+Quantitatively this is consistent with a current drawn from the ADC pin that is
+ohmic ($\approx$17.4\,k$\Omega$) below $\approx$3.9\,mV and saturates at
+$\approx$225\,nA above it
+($225\,\text{nA}\times(100\,\text{k}\Vert20\,\text{k}=16.67\,\text{k}\Omega)=3.75$\,mV)
+--- the resistive-then-constant-current signature of a leaky junction or ESD
+structure. Note that 225\,nA is roughly $200\times$ the AD7193's buffered
+input-leakage specification, and that a power-off resistance check cannot detect
+it (the divider measures a textbook 16.691\,k$\Omega$ pin-to-ground).
+
+\paragraph{Practical consequence.} Above the knee --- i.e.\ for any load
+current above $\approx$45\,$\mu$A, which covers the entire intended thermo-optic
+operating range --- the sense path is linear to $r^2=1.0000000$, and what remains
+after the two-parameter fit is $38.6\,\mu$V rms ($61.5\,\mu$V worst) at the ADC
+pin, equivalently $368\,\mu$V node-referred or \textbf{58\,ppm of the 6.4\,V
+full-scale node span}. The offset is a single additive constant that calibrates
+out. Below the knee the reported voltage is \emph{not} trustworthy and should not
+be used for resistance or power estimation. This bounds the usable low end of the
+measurement range and is reported here as a characterized limitation.
+
+\paragraph{On the divider ratio.} The in-situ fit returns 5.99 rather than the
+6.0017 obtained by back-driving the divider with the current source removed.
+The difference is not a divider error: $\approx$1.9\,$\Omega$ of series
+resistance in the load path between the divider tap and the DMM connection
+carries the load current, so the divider sees $V_\text{DMM}+I R_s$, a
+current-proportional term that lands entirely in the fitted ratio
+($6.0017/(1+R_s/996.4)=5.988$). The nominal $\times6$ of
+Section~\ref{sec:description} is correct. The corollary is methodological: an
+in-situ voltage-vs-voltage sweep cannot measure the true divider ratio and will
+always return $\approx$5.99; ratio must come from a back-drive measurement, and
+in-situ sweeps should be used for offset and linearity only.
+
+\todo{Repeat on a second channel and a second board. The data above is one
+channel on one board; the earlier per-board clustering of this residual makes a
+225\,nA leak on \emph{every} channel implausible unless it is inherent to the
+AD7193 input structure, which the single-channel data cannot distinguish.}
+\todo{Decisive localization: probe the ADC pin directly across the same
+low-current points. If the pin voltage itself shows the 11.73$\rightarrow$5.99
+knee the current is drawn at the node (board/ESD leakage, fixable upstream); if
+the pin tracks a clean 6:1 and only the reported code shows the knee, it is
+internal to the AD7193. Attach the meter for \emph{all} points so its loading of
+this unfiltered $\approx$16.7\,k$\Omega$ node stays common-mode.}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/v-sense.png}
+  \caption{Voltage-sense linearity, channel~0. Left: the incremental divider
+  ratio $\Delta V_\text{node}/\Delta V_\text{ADC}$ against node voltage, showing
+  the collapse from $\approx$11.7 to the correct 5.99 at the knee
+  ($V_\text{node}=44\pm2$\,mV, dashed). Right: the additive offset implied if one
+  insists on describing the path with the above-knee gain --- it builds up
+  through the low-signal region and saturates at $-3.75$\,mV, which is the
+  signature that distinguishes a low-signal gain deficit from a true fixed
+  offset. A genuine offset would be flat everywhere.}
+  \label{fig:v-sense-linearity}
+\end{figure}
 
 \subsection{Noise and resolution}
-\todo{ADC noise floor / effective resolution vs.\ \texttt{RATE} (filter word)
-and \texttt{AVG} (on-micro averaging).}
+\label{sec:noise}
+Measurement noise was characterized by repeated single-channel reads at a fixed
+commanded current (channel~0, 1.0\,mA into 996.4\,$\Omega$, 30 reads per
+setting, the first five after each change discarded because conversions taken
+before the filter settles are invalid), sweeping the two sampling controls: \texttt{RATE} (the AD7193 filter
+word) and \texttt{AVG} (on-microcontroller averaging). The Keithley 2100's own
+spread over the same reads is quoted alongside as a bound on how much of the
+observed noise originates in the source and load rather than the ADC.
+
+\medskip
+\noindent\begin{tabular}{@{}rrrrrrr@{}}
+\toprule
+\textbf{RATE} & \textbf{AVG} & \textbf{t/read} & \textbf{1$\sigma$ at pin} & \textbf{1$\sigma$ at load} & \textbf{equiv.\ current} & \textbf{2100 1$\sigma$} \\
+\midrule
+8   & 4  & 29\,ms   & 30.5\,$\mu$V & 183\,$\mu$V & 184\,nA & --- \\
+16  & 4  & 56\,ms   & 11.36\,$\mu$V & 68.2\,$\mu$V & 68.4\,nA & 8.82\,$\mu$V \\
+96  & 1  & 81\,ms   & 5.29\,$\mu$V & 31.8\,$\mu$V & 31.9\,nA & 6.29\,$\mu$V \\
+96  & 4  & 320\,ms  & 3.08\,$\mu$V & 18.5\,$\mu$V & 18.6\,nA & 10.45\,$\mu$V \\
+96  & 16 & 1276\,ms & \textbf{1.72\,$\mu$V} & 10.3\,$\mu$V & 10.4\,nA & 11.94\,$\mu$V \\
+240 & 4  & 796\,ms  & 2.20\,$\mu$V & 13.2\,$\mu$V & 13.3\,nA & 7.92\,$\mu$V \\
+\bottomrule
+\end{tabular}
+\medskip
+
+Per-read time follows $0.83\,\text{ms}\times\texttt{RATE}\times\texttt{AVG}$ at
+every point measured. Noise falls monotonically across the whole grid ---
+$11.36\to5.29\to3.08\to1.72\,\mu$V, a factor $1.75$ per fourfold increase in
+averaging, i.e.\ essentially $\sqrt{n}$ --- so \textbf{no noise floor is reached
+within the settings tested}, and these data do not establish where one lies.
+Averaging is also the more efficient lever than filter length here: at $1.6\times$
+the time, \texttt{RATE}\,96/\texttt{AVG}\,16 ($1276$\,ms, $1.72\,\mu$V) beats
+\texttt{RATE}\,240/\texttt{AVG}\,4 ($796$\,ms, $2.20\,\mu$V). At the quietest
+setting the pin-referred noise is below the reference DMM's own spread over the
+same interval, so the figure quoted there is an upper bound on the instrument.
+
+The choice of operating point is therefore a straightforward speed/noise trade
+rather than a search for a floor. \texttt{RATE}\,8 / \texttt{AVG}\,4 refreshes
+the whole 64-channel array in 1.7\,s at $184$\,nA equivalent noise and is the
+practical setting for live monitoring; \texttt{RATE}\,96 / \texttt{AVG}\,16 is
+$\sim$18$\times$ quieter for deliberate single-channel measurements.
 
 \subsection{Thermal validation}
 \label{sec:thermal}
@@ -554,14 +850,37 @@ tests in the noise section). State the derating, if any, for enclosed /
 stacked operation.}
 
 \subsection{Throughput}
-\todo{Report the full 64-channel scan time vs.\ number of populated boards and
-\texttt{RATE}. Note the readout is not yet optimized --- headroom remains
-(higher SPI clock, overlapping the per-board scans) --- state what was measured
-and what is achievable.} The continuous-conversion sequencer reads one full
-8-channel board per pass instead of per-channel single conversions, reducing a
-two-board, 16-channel readout from $\approx$3.4\,s to $\approx$80\,ms
-(measured) --- gated by the filter rate rather than a fixed per-channel restart
-penalty.
+\label{sec:throughput}
+The continuous-conversion sequencer reads one full 8-channel board per pass
+instead of issuing per-channel single conversions, so the readout is gated by
+filter settling rather than by a fixed per-channel restart penalty. Measured on
+a fully populated 8-board, 64-channel system:
+
+\medskip
+\noindent\begin{tabular}{@{}rrrrr@{}}
+\toprule
+\textbf{\texttt{RATE}} & \textbf{\texttt{AVG}} & \textbf{per board (8 ch)} & \textbf{full array (64 ch)} & \textbf{array refresh} \\
+\midrule
+8  & 1 & 0.064\,s & \textbf{0.46\,s} & 2.17\,Hz \\
+8  & 4 & 0.224\,s & \textbf{1.74\,s} & 0.57\,Hz \\
+16 & 4 & 0.436\,s & 3.43\,s & 0.29\,Hz \\
+32 & 4 & 0.860\,s & 6.82\,s & 0.15\,Hz \\
+\bottomrule
+\end{tabular}
+\medskip
+
+All 64 channels returned valid data at every setting. Per-board time
+$\times\,8$ reproduces the full-array time to within 2\,\% throughout, which
+confirms there is no significant fixed per-board overhead: the scan cost is
+settling, and it scales exactly as
+$0.83\,\text{ms}\times\texttt{RATE}\times\texttt{AVG}$ per channel.
+
+Two practical notes. The host-side command deadline is 10\,s, so whole-array
+reads above $\approx$\texttt{RATE}\,48 at \texttt{AVG}\,4 exceed it and must be
+issued per board --- which is what the host GUI does in normal operation.
+Second, the readout is not yet optimized: the SPI clock is 1\,MHz and the
+per-board scans are sequential, so overlapping them or raising the clock is
+available headroom, not a claimed result.
 
 \subsection{Channel-to-channel crosstalk and board reproducibility}
 \todo{Quantify crosstalk between adjacent channels and consistency across the
